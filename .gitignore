@@ -16,3 +16,6 @@ vendor/
 *.mov
 .pytest_cache/
 .ruff_cache/
+
+# macOS
+.DS_Store
