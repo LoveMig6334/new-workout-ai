@@ -5,6 +5,7 @@ from workout_ai.analysis.angles import (
     knee_angles,
     torso_lean_deg,
     hip_below_knee,
+    knee_valgus_ratio,
 )
 
 
@@ -81,3 +82,31 @@ def test_hip_below_knee_false():
     kps[13] = (100, 200)
     kps[14] = (150, 200)
     assert hip_below_knee(kps) is False
+
+
+def test_knee_valgus_ratio_neutral_stance():
+    # Knees directly above ankles -> zero valgus on both sides
+    kps = np.zeros((17, 2), dtype=np.float32)
+    kps[11] = (100, 200)   # L hip
+    kps[12] = (200, 200)   # R hip (hip_width = 100)
+    kps[13] = (100, 250)   # L knee directly above L ankle
+    kps[14] = (200, 250)   # R knee directly above R ankle
+    kps[15] = (100, 300)   # L ankle
+    kps[16] = (200, 300)   # R ankle
+    left, right = knee_valgus_ratio(kps)
+    assert left == pytest.approx(0.0, abs=0.001)
+    assert right == pytest.approx(0.0, abs=0.001)
+
+
+def test_knee_valgus_ratio_caved_inward():
+    # Both knees shifted toward each other (caved in). Should produce positive values on both sides.
+    kps = np.zeros((17, 2), dtype=np.float32)
+    kps[11] = (100, 200)   # L hip
+    kps[12] = (200, 200)   # R hip (hip_width = 100)
+    kps[13] = (130, 250)   # L knee shifted right by 30 (inward)
+    kps[14] = (170, 250)   # R knee shifted left by 30 (inward)
+    kps[15] = (100, 300)   # L ankle
+    kps[16] = (200, 300)   # R ankle
+    left, right = knee_valgus_ratio(kps)
+    assert left == pytest.approx(0.3, abs=0.01)   # (130-100)/100 = 0.3
+    assert right == pytest.approx(0.3, abs=0.01)  # (200-170)/100 = 0.3
