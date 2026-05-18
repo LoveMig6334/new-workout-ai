@@ -10,6 +10,8 @@ from workout_ai.analysis.phases import SquatFSM
 from workout_ai.analysis.rules_squat import score_rep
 from workout_ai.analysis.attention import aggregate_heatmaps
 from workout_ai.analysis.types import PoseFrame, PhaseState
+from workout_ai.feedback.llm import ThaiCoachLLM
+from workout_ai.feedback.worker import LLMWorker
 
 
 def run():
@@ -19,6 +21,14 @@ def run():
     buf3d = Pose3DBuffer(lifter)
     renderer = Renderer(panel_width=320)
     fsm = SquatFSM()
+
+    print("Loading Qwen3.5-4B (this takes ~10 seconds the first time)...")
+    llm = ThaiCoachLLM()
+    print("Warming up LLM...")
+    llm.warmup()
+    worker = LLMWorker(llm)
+    worker.start()
+    print("Ready.")
 
     rep_count = 0
     running_sum = 0
@@ -36,9 +46,8 @@ def run():
         rep_count += 1
         running_sum += analysis.score
         last_score = analysis.score
+        worker.submit(analysis)
         print(f"[rep {analysis.rep_index}] score={analysis.score} components={analysis.components}")
-        for v in analysis.violations:
-            print(f"    violation: {v.name} severity={v.severity:.2f}")
 
     fsm.on_rep_complete = on_rep_complete
     cap.start()
@@ -68,6 +77,7 @@ def run():
 
             frame_drawn = renderer.draw_skeleton(frame, kps, scores)
             avg = (running_sum / rep_count) if rep_count else 0.0
+            thai_text = worker.latest() or ""
             attention_map = aggregate_heatmaps(hms) if (show_attention and hms is not None) else None
             display = renderer.compose(
                 frame_drawn,
@@ -75,7 +85,7 @@ def run():
                 running_avg=avg,
                 rep_count=rep_count,
                 phase=state.value,
-                thai_text="",
+                thai_text=thai_text,
                 rig_3d_kps=last_rig_3d,
                 attention=attention_map,
             )
@@ -87,6 +97,7 @@ def run():
             if key == ord("a"):
                 show_attention = not show_attention
     finally:
+        worker.stop()
         cap.stop()
         cv2.destroyAllWindows()
 
