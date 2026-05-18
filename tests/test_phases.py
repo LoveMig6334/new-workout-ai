@@ -7,6 +7,7 @@ def make_kps(knee_angle_deg: float) -> np.ndarray:
     """Build a synthetic keypoint array with a target knee angle."""
     kps = np.zeros((17, 2), dtype=np.float32)
     import math
+
     theta = math.radians(180 - knee_angle_deg)
     kps[11] = (0.0, 0.0)
     kps[13] = (0.0, 100.0)

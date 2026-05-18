@@ -5,7 +5,9 @@ from workout_ai.analysis.types import PoseFrame, PhaseState, RepAnalysis, RuleVi
 def test_pose_frame_construction():
     keypoints = np.zeros((17, 2), dtype=np.float32)
     scores = np.zeros((17,), dtype=np.float32)
-    pf = PoseFrame(timestamp=1.0, keypoints_2d=keypoints, scores=scores, frame_shape=(480, 640))
+    pf = PoseFrame(
+        timestamp=1.0, keypoints_2d=keypoints, scores=scores, frame_shape=(480, 640)
+    )
     assert pf.timestamp == 1.0
     assert pf.keypoints_2d.shape == (17, 2)
 

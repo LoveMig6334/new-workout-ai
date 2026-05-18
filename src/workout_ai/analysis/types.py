@@ -15,17 +15,19 @@ class PhaseState(Enum):
 class PoseFrame:
     timestamp: float
     keypoints_2d: np.ndarray  # shape (17, 2) COCO-17
-    scores: np.ndarray        # shape (17,)
+    scores: np.ndarray  # shape (17,)
     frame_shape: tuple[int, int]  # (H, W)
-    keypoints_3d: Optional[np.ndarray] = None  # shape (17, 3) when MotionBERT result is attached
-    attention: Optional[np.ndarray] = None     # shape (H, W) heatmap from RTMPose
+    keypoints_3d: Optional[np.ndarray] = (
+        None  # shape (17, 3) when MotionBERT result is attached
+    )
+    attention: Optional[np.ndarray] = None  # shape (H, W) heatmap from RTMPose
 
 
 @dataclass
 class RuleViolation:
     name: str
     severity: float  # 0.0 .. 1.0
-    detail_th: str   # short Thai phrase, used in LLM prompt as a hint
+    detail_th: str  # short Thai phrase, used in LLM prompt as a hint
 
 
 @dataclass

@@ -42,12 +42,19 @@ def run():
         nonlocal rep_count, running_sum, last_score
         if last_bottom_frame is None:
             return
-        analysis = score_rep(last_bottom_frame, meta["descent_ms"], meta["ascent_ms"], rep_index=rep_count)
+        analysis = score_rep(
+            last_bottom_frame,
+            meta["descent_ms"],
+            meta["ascent_ms"],
+            rep_index=rep_count,
+        )
         rep_count += 1
         running_sum += analysis.score
         last_score = analysis.score
         worker.submit(analysis)
-        print(f"[rep {analysis.rep_index}] score={analysis.score} components={analysis.components}")
+        print(
+            f"[rep {analysis.rep_index}] score={analysis.score} components={analysis.components}"
+        )
 
     fsm.on_rep_complete = on_rep_complete
     cap.start()
@@ -60,7 +67,12 @@ def run():
 
             ts = time.monotonic()
             kps, scores, hms = pose.infer_with_heatmaps(frame)
-            pf = PoseFrame(timestamp=ts, keypoints_2d=kps, scores=scores, frame_shape=frame.shape[:2])
+            pf = PoseFrame(
+                timestamp=ts,
+                keypoints_2d=kps,
+                scores=scores,
+                frame_shape=frame.shape[:2],
+            )
 
             h36m = coco17_to_h36m17(kps, scores)
             buf3d.push(h36m)
@@ -78,7 +90,11 @@ def run():
             frame_drawn = renderer.draw_skeleton(frame, kps, scores)
             avg = (running_sum / rep_count) if rep_count else 0.0
             thai_text = worker.latest() or ""
-            attention_map = aggregate_heatmaps(hms) if (show_attention and hms is not None) else None
+            attention_map = (
+                aggregate_heatmaps(hms)
+                if (show_attention and hms is not None)
+                else None
+            )
             display = renderer.compose(
                 frame_drawn,
                 score=last_score,

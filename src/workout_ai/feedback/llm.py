@@ -20,7 +20,12 @@ class ThaiCoachLLM:
         self._model, self._processor = load(str(model_path))
         self._config = load_config(str(model_path))
 
-    def generate(self, rep: RepAnalysis, max_tokens: int = 160, frame_bgr: Optional[np.ndarray] = None) -> str:
+    def generate(
+        self,
+        rep: RepAnalysis,
+        max_tokens: int = 160,
+        frame_bgr: Optional[np.ndarray] = None,
+    ) -> str:
         from mlx_vlm import generate as mlx_generate
         from mlx_vlm.prompt_utils import apply_chat_template
 
@@ -29,7 +34,9 @@ class ThaiCoachLLM:
             {"role": "system", "content": SYSTEM_TH},
             {"role": "user", "content": user},
         ]
-        prompt = apply_chat_template(self._processor, self._config, messages, num_images=0)
+        prompt = apply_chat_template(
+            self._processor, self._config, messages, num_images=0
+        )
         result = mlx_generate(
             self._model,
             self._processor,
@@ -44,7 +51,13 @@ class ThaiCoachLLM:
         dummy = RepAnalysis(
             rep_index=-1,
             score=50,
-            components={"depth": 10, "valgus": 10, "torso": 10, "symmetry": 10, "tempo": 10},
+            components={
+                "depth": 10,
+                "valgus": 10,
+                "torso": 10,
+                "symmetry": 10,
+                "tempo": 10,
+            },
             violations=[],
             descent_ms=0,
             ascent_ms=0,

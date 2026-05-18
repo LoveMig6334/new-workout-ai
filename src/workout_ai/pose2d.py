@@ -13,7 +13,10 @@ class Pose2D:
 
     def __init__(self, device: str = "cpu"):
         from rtmlib import Body
-        self._body = Body(mode="performance", to_openpose=False, backend="onnxruntime", device=device)
+
+        self._body = Body(
+            mode="performance", to_openpose=False, backend="onnxruntime", device=device
+        )
 
         # rtmlib 0.0.15 exposes the pose estimator as `pose_model`
         self._pose = getattr(self._body, "pose_model", None)
@@ -45,7 +48,9 @@ class Pose2D:
         idx = int(np.argmax(scores.sum(axis=1)))
         return keypoints[idx].astype(np.float32), scores[idx].astype(np.float32)
 
-    def infer_with_heatmaps(self, image_bgr: np.ndarray) -> tuple[np.ndarray, np.ndarray, Optional[np.ndarray]]:
+    def infer_with_heatmaps(
+        self, image_bgr: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray, Optional[np.ndarray]]:
         """Returns (keypoints, scores, heatmaps) where heatmaps is (17, H, W) reconstructed from simcc.
         If rtmlib version does not expose simcc outputs, heatmaps will be None."""
         kps, scores = self.infer(image_bgr)

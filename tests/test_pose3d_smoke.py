@@ -3,11 +3,21 @@ import pytest
 from pathlib import Path
 
 MOTIONBERT_PATH = Path(__file__).resolve().parent.parent / "vendor" / "motionbert"
-CKPT = Path(__file__).resolve().parent.parent / "models" / "motionbert" / "checkpoint" / "pose3d" / "FT_MB_lite_MB_ft_h36m_global_lite" / "best_epoch.bin"
+CKPT = (
+    Path(__file__).resolve().parent.parent
+    / "models"
+    / "motionbert"
+    / "checkpoint"
+    / "pose3d"
+    / "FT_MB_lite_MB_ft_h36m_global_lite"
+    / "best_epoch.bin"
+)
 
 
-@pytest.mark.skipif(not (MOTIONBERT_PATH.exists() and CKPT.exists()),
-                    reason="MotionBERT vendor code or checkpoint missing")
+@pytest.mark.skipif(
+    not (MOTIONBERT_PATH.exists() and CKPT.exists()),
+    reason="MotionBERT vendor code or checkpoint missing",
+)
 def test_pose3d_returns_17x3():
     from workout_ai.pose3d import Pose3D
 

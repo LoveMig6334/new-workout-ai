@@ -4,7 +4,9 @@ import numpy as np
 LOWER_BODY_JOINTS = [11, 12, 13, 14, 15, 16]  # hips, knees, ankles
 
 
-def aggregate_heatmaps(heatmaps: np.ndarray, joints: list[int] | None = None) -> np.ndarray:
+def aggregate_heatmaps(
+    heatmaps: np.ndarray, joints: list[int] | None = None
+) -> np.ndarray:
     """heatmaps: (N_kpts, H, W). Returns a single (H, W) attention map in [0, 1].
 
     Squat-specific: weight lower-body joints heavier.

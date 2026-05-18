@@ -7,28 +7,36 @@ import yaml
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 MOTIONBERT_DIR = PROJECT_ROOT / "vendor" / "motionbert"
-CKPT_PATH = PROJECT_ROOT / "models" / "motionbert" / "checkpoint" / "pose3d" / "FT_MB_lite_MB_ft_h36m_global_lite" / "best_epoch.bin"
+CKPT_PATH = (
+    PROJECT_ROOT
+    / "models"
+    / "motionbert"
+    / "checkpoint"
+    / "pose3d"
+    / "FT_MB_lite_MB_ft_h36m_global_lite"
+    / "best_epoch.bin"
+)
 CONFIG_PATH = MOTIONBERT_DIR / "configs" / "pose3d" / "MB_ft_h36m_global_lite.yaml"
 
 # COCO-17 -> Human3.6M-17 reordering.
 COCO_TO_H36M = {
-    0: -1,    # pelvis: synthesized as (L_hip + R_hip) / 2
-    1: 12,    # R hip
-    2: 14,    # R knee
-    3: 16,    # R ankle
-    4: 11,    # L hip
-    5: 13,    # L knee
-    6: 15,    # L ankle
-    7: -2,    # spine: midpoint of pelvis and thorax
-    8: -3,    # thorax: midpoint of shoulders
-    9: 0,     # neck/nose -> nose
-    10: 0,    # head -> nose (coarse)
-    11: 5,    # L shoulder
-    12: 7,    # L elbow
-    13: 9,    # L wrist
-    14: 6,    # R shoulder
-    15: 8,    # R elbow
-    16: 10,   # R wrist
+    0: -1,  # pelvis: synthesized as (L_hip + R_hip) / 2
+    1: 12,  # R hip
+    2: 14,  # R knee
+    3: 16,  # R ankle
+    4: 11,  # L hip
+    5: 13,  # L knee
+    6: 15,  # L ankle
+    7: -2,  # spine: midpoint of pelvis and thorax
+    8: -3,  # thorax: midpoint of shoulders
+    9: 0,  # neck/nose -> nose
+    10: 0,  # head -> nose (coarse)
+    11: 5,  # L shoulder
+    12: 7,  # L elbow
+    13: 9,  # L wrist
+    14: 6,  # R shoulder
+    15: 8,  # R elbow
+    16: 10,  # R wrist
 }
 
 
@@ -78,9 +86,15 @@ class Pose3D:
 
         cfg = get_config(str(CONFIG_PATH))
         self._model = DSTformer(
-            dim_in=3, dim_out=3, dim_feat=cfg.dim_feat, dim_rep=cfg.dim_rep,
-            depth=cfg.depth, num_heads=cfg.num_heads, mlp_ratio=cfg.mlp_ratio,
-            num_joints=cfg.num_joints, maxlen=cfg.maxlen,
+            dim_in=3,
+            dim_out=3,
+            dim_feat=cfg.dim_feat,
+            dim_rep=cfg.dim_rep,
+            depth=cfg.depth,
+            num_heads=cfg.num_heads,
+            mlp_ratio=cfg.mlp_ratio,
+            num_joints=cfg.num_joints,
+            maxlen=cfg.maxlen,
         )
         ckpt = torch.load(CKPT_PATH, map_location=self.device, weights_only=False)
         state = ckpt.get("model_pos", ckpt)
@@ -90,7 +104,9 @@ class Pose3D:
         self.window_size = window_size
 
     @torch.no_grad()
-    def infer(self, window: np.ndarray, frame_h: int = 720, frame_w: int = 1280) -> np.ndarray:
+    def infer(
+        self, window: np.ndarray, frame_h: int = 720, frame_w: int = 1280
+    ) -> np.ndarray:
         norm = _normalize_2d(window, frame_h, frame_w)
         x = torch.from_numpy(norm).float().unsqueeze(0).to(self.device)
         out = self._model(x)

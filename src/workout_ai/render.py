@@ -3,13 +3,18 @@ import numpy as np
 
 # COCO-17 skeleton connections (pairs of keypoint indices)
 SKELETON = [
-    (5, 7), (7, 9),         # left arm
-    (6, 8), (8, 10),        # right arm
-    (5, 6),                 # shoulders
-    (5, 11), (6, 12),       # torso
-    (11, 12),               # hips
-    (11, 13), (13, 15),     # left leg
-    (12, 14), (14, 16),     # right leg
+    (5, 7),
+    (7, 9),  # left arm
+    (6, 8),
+    (8, 10),  # right arm
+    (5, 6),  # shoulders
+    (5, 11),
+    (6, 12),  # torso
+    (11, 12),  # hips
+    (11, 13),
+    (13, 15),  # left leg
+    (12, 14),
+    (14, 16),  # right leg
 ]
 
 
@@ -17,7 +22,13 @@ class Renderer:
     def __init__(self, panel_width: int = 320):
         self.panel_width = panel_width
 
-    def draw_skeleton(self, frame: np.ndarray, kps: np.ndarray, scores: np.ndarray, threshold: float = 0.3) -> np.ndarray:
+    def draw_skeleton(
+        self,
+        frame: np.ndarray,
+        kps: np.ndarray,
+        scores: np.ndarray,
+        threshold: float = 0.3,
+    ) -> np.ndarray:
         out = frame.copy()
         for i, (x, y) in enumerate(kps):
             if scores[i] < threshold:
@@ -53,35 +64,88 @@ class Renderer:
         canvas[:, :w] = display_frame
 
         # HUD on the frame
-        cv2.putText(canvas, f"Reps: {rep_count}", (12, 30),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
-        cv2.putText(canvas, f"Avg: {running_avg:.1f}", (12, 60),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
-        cv2.putText(canvas, f"Phase: {phase}", (12, 90),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (200, 255, 200), 2)
+        cv2.putText(
+            canvas,
+            f"Reps: {rep_count}",
+            (12, 30),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.8,
+            (255, 255, 255),
+            2,
+        )
+        cv2.putText(
+            canvas,
+            f"Avg: {running_avg:.1f}",
+            (12, 60),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.8,
+            (255, 255, 255),
+            2,
+        )
+        cv2.putText(
+            canvas,
+            f"Phase: {phase}",
+            (12, 90),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            (200, 255, 200),
+            2,
+        )
         if score is not None:
-            cv2.putText(canvas, f"Last: {score}", (12, h - 16),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 255, 255), 3)
+            cv2.putText(
+                canvas,
+                f"Last: {score}",
+                (12, h - 16),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                1.2,
+                (0, 255, 255),
+                3,
+            )
 
         # Right panel
         cv2.rectangle(canvas, (w, 0), (w + self.panel_width, h), (30, 30, 30), -1)
-        cv2.putText(canvas, "Coach", (w + 12, 26),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+        cv2.putText(
+            canvas,
+            "Coach",
+            (w + 12, 26),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            (255, 255, 255),
+            2,
+        )
         if rig_3d_kps is not None:
-            self._draw_rig_3d(canvas, rig_3d_kps, top_left=(w + 10, 40), size=(self.panel_width - 20, 220))
+            self._draw_rig_3d(
+                canvas,
+                rig_3d_kps,
+                top_left=(w + 10, 40),
+                size=(self.panel_width - 20, 220),
+            )
 
         if thai_text:
-            self._draw_thai(canvas, thai_text, top_left=(w + 12, 280), max_width=self.panel_width - 24)
+            self._draw_thai(
+                canvas,
+                thai_text,
+                top_left=(w + 12, 280),
+                max_width=self.panel_width - 24,
+            )
 
         return canvas
 
-    def _overlay_attention(self, frame: np.ndarray, attention: np.ndarray) -> np.ndarray:
+    def _overlay_attention(
+        self, frame: np.ndarray, attention: np.ndarray
+    ) -> np.ndarray:
         att = (attention * 255).astype(np.uint8)
         att = cv2.resize(att, (frame.shape[1], frame.shape[0]))
         heat = cv2.applyColorMap(att, cv2.COLORMAP_JET)
         return cv2.addWeighted(frame, 0.7, heat, 0.3, 0)
 
-    def _draw_rig_3d(self, canvas: np.ndarray, kps_3d: np.ndarray, top_left: tuple[int, int], size: tuple[int, int]):
+    def _draw_rig_3d(
+        self,
+        canvas: np.ndarray,
+        kps_3d: np.ndarray,
+        top_left: tuple[int, int],
+        size: tuple[int, int],
+    ):
         x0, y0 = top_left
         w, h = size
         cv2.rectangle(canvas, (x0, y0), (x0 + w, y0 + h), (50, 50, 50), 1)
@@ -103,13 +167,18 @@ class Renderer:
             pb = (int(xy[b, 0]), int(xy[b, 1]))
             cv2.line(canvas, pa, pb, (0, 200, 255), 1)
 
-    def _draw_thai(self, canvas: np.ndarray, text: str, top_left: tuple[int, int], max_width: int):
+    def _draw_thai(
+        self, canvas: np.ndarray, text: str, top_left: tuple[int, int], max_width: int
+    ):
         from PIL import Image, ImageDraw, ImageFont
+
         x, y = top_left
         pil_canvas = Image.fromarray(cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB))
         draw = ImageDraw.Draw(pil_canvas)
         try:
-            font = ImageFont.truetype("/System/Library/Fonts/Supplemental/Ayuthaya.ttf", 16)
+            font = ImageFont.truetype(
+                "/System/Library/Fonts/Supplemental/Ayuthaya.ttf", 16
+            )
         except OSError:
             font = ImageFont.load_default()
         words = text.split()

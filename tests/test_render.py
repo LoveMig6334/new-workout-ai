@@ -14,5 +14,7 @@ def test_draw_skeleton_does_not_crash():
 def test_compose_with_panel_returns_wider_image():
     frame = np.zeros((480, 640, 3), dtype=np.uint8)
     r = Renderer(panel_width=320)
-    out = r.compose(frame, score=85, running_avg=72.5, rep_count=4, phase="bottom", thai_text="")
+    out = r.compose(
+        frame, score=85, running_avg=72.5, rep_count=4, phase="bottom", thai_text=""
+    )
     assert out.shape == (480, 640 + 320, 3)
