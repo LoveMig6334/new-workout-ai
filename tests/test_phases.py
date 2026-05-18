@@ -57,3 +57,27 @@ def test_descent_then_back_up_no_rep():
     fsm.update(make_kps(175.0), timestamp=1.0)
     assert fsm.state == PhaseState.STANDING
     assert len(rep_completed) == 0
+
+
+def test_rep_completes_when_starting_already_mid_squat():
+    """Regression: if the first observed frame is below STAND_THRESHOLD, descent_start_ts
+    must fall back to the transition timestamp instead of remaining None."""
+    fsm = SquatFSM()
+    rep_completed = []
+    fsm.on_rep_complete = lambda m: rep_completed.append(m)
+
+    # First frame: user already descending (knee=140 < 160). FSM goes STANDING -> DESCENT.
+    fsm.update(make_kps(140.0), timestamp=0.5)
+    assert fsm.state == PhaseState.DESCENT
+    fsm.update(make_kps(85.0), timestamp=1.0)
+    assert fsm.state == PhaseState.BOTTOM
+    fsm.update(make_kps(110.0), timestamp=1.5)
+    assert fsm.state == PhaseState.ASCENT
+    # Completing the rep used to throw `TypeError: float - NoneType`.
+    fsm.update(make_kps(175.0), timestamp=2.0)
+    assert fsm.state == PhaseState.STANDING
+    assert len(rep_completed) == 1
+    meta = rep_completed[0]
+    # descent_start_ts fell back to t=0.5 (the transition frame). descent_ms = (1.0 - 0.5) * 1000 = 500.
+    assert meta["descent_ms"] == 500
+    assert meta["ascent_ms"] == 1000

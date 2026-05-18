@@ -24,6 +24,8 @@ class SquatFSM:
         if self.state == PhaseState.STANDING:
             if angle < STAND_THRESHOLD:
                 self.state = PhaseState.DESCENT
+                if self.descent_start_ts is None:
+                    self.descent_start_ts = timestamp
             else:
                 self.descent_start_ts = timestamp  # track last confirmed standing frame
         elif self.state == PhaseState.DESCENT:
