@@ -8,6 +8,7 @@ from workout_ai.pose3d import Pose3D, Pose3DBuffer, coco17_to_h36m17
 from workout_ai.render import Renderer
 from workout_ai.analysis.phases import SquatFSM
 from workout_ai.analysis.rules_squat import score_rep
+from workout_ai.analysis.attention import aggregate_heatmaps
 from workout_ai.analysis.types import PoseFrame, PhaseState
 
 
@@ -25,6 +26,7 @@ def run():
     last_bottom_frame: PoseFrame | None = None
     last_rig_3d: np.ndarray | None = None
     frame_idx = 0
+    show_attention = False
 
     def on_rep_complete(meta: dict):
         nonlocal rep_count, running_sum, last_score
@@ -48,7 +50,7 @@ def run():
                 break
 
             ts = time.monotonic()
-            kps, scores = pose.infer(frame)
+            kps, scores, hms = pose.infer_with_heatmaps(frame)
             pf = PoseFrame(timestamp=ts, keypoints_2d=kps, scores=scores, frame_shape=frame.shape[:2])
 
             h36m = coco17_to_h36m17(kps, scores)
@@ -64,21 +66,26 @@ def run():
             if state == PhaseState.BOTTOM:
                 last_bottom_frame = pf
 
-            frame = renderer.draw_skeleton(frame, kps, scores)
+            frame_drawn = renderer.draw_skeleton(frame, kps, scores)
             avg = (running_sum / rep_count) if rep_count else 0.0
+            attention_map = aggregate_heatmaps(hms) if (show_attention and hms is not None) else None
             display = renderer.compose(
-                frame,
+                frame_drawn,
                 score=last_score,
                 running_avg=avg,
                 rep_count=rep_count,
                 phase=state.value,
                 thai_text="",
                 rig_3d_kps=last_rig_3d,
+                attention=attention_map,
             )
             cv2.imshow("Workout AI", display)
             frame_idx += 1
-            if cv2.waitKey(1) & 0xFF == ord("q"):
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord("q"):
                 break
+            if key == ord("a"):
+                show_attention = not show_attention
     finally:
         cap.stop()
         cv2.destroyAllWindows()
