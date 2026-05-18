@@ -7,7 +7,7 @@ import yaml
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 MOTIONBERT_DIR = PROJECT_ROOT / "vendor" / "motionbert"
-CKPT_PATH = PROJECT_ROOT / "models" / "motionbert" / "MB_ft_h36m_global_lite.bin"
+CKPT_PATH = PROJECT_ROOT / "models" / "motionbert" / "checkpoint" / "pose3d" / "FT_MB_lite_MB_ft_h36m_global_lite" / "best_epoch.bin"
 CONFIG_PATH = MOTIONBERT_DIR / "configs" / "pose3d" / "MB_ft_h36m_global_lite.yaml"
 
 # COCO-17 -> Human3.6M-17 reordering.

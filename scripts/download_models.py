@@ -22,8 +22,8 @@ def download_motionbert():
     target_dir = MODELS_DIR / "motionbert"
     target_dir.mkdir(parents=True, exist_ok=True)
     ckpt = hf_hub_download(
-        repo_id="walterzhu/MotionBERT-Lite",
-        filename="MB_ft_h36m_global_lite.bin",
+        repo_id="walterzhu/MotionBERT",
+        filename="checkpoint/pose3d/FT_MB_lite_MB_ft_h36m_global_lite/best_epoch.bin",
         local_dir=str(target_dir),
     )
     print(f"       MotionBERT at {ckpt}")
