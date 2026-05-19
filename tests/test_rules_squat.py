@@ -104,3 +104,13 @@ def test_tempo_penalty_when_ascent_longer():
     bottom = make_pose_frame(knee_angle=85.0, hip_y=260, knee_y=240, lean=30.0)
     result = score_rep(bottom_frame=bottom, descent_ms=500, ascent_ms=1500)
     assert result.components["tempo"] < 10
+
+
+def test_score_rep_uses_2d_fallback_when_no_3d_present():
+    """Existing 2D-only fixtures should now report metric_source='2d'."""
+    bottom = make_pose_frame(
+        knee_angle=85.0, hip_y=260, knee_y=240, valgus=0.0, lean=35.0
+    )
+    # bottom.keypoints_3d is None by construction (make_pose_frame doesn't set it).
+    result = score_rep(bottom_frame=bottom, descent_ms=1200, ascent_ms=1000)
+    assert result.metric_source == "2d"

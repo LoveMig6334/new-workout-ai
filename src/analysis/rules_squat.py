@@ -13,6 +13,16 @@ DEPTH_ZERO_DEG = 130.0
 def score_rep(
     bottom_frame: PoseFrame, descent_ms: int, ascent_ms: int, rep_index: int = 0
 ) -> RepAnalysis:
+    """Score a completed rep. Dispatches to the 3D scorer when keypoints_3d
+    is present; falls back to the 2D scorer otherwise."""
+    if bottom_frame.keypoints_3d is not None:
+        return _score_rep_3d(bottom_frame, descent_ms, ascent_ms, rep_index)
+    return _score_rep_2d(bottom_frame, descent_ms, ascent_ms, rep_index)
+
+
+def _score_rep_2d(
+    bottom_frame: PoseFrame, descent_ms: int, ascent_ms: int, rep_index: int = 0
+) -> RepAnalysis:
     kps = bottom_frame.keypoints_2d
     violations: list[RuleViolation] = []
     components: dict[str, int] = {}
@@ -123,4 +133,12 @@ def score_rep(
         bottom_frame_keypoints_3d=bottom_frame.keypoints_3d.copy()
         if bottom_frame.keypoints_3d is not None
         else None,
+        metric_source="2d",
     )
+
+
+def _score_rep_3d(
+    bottom_frame: PoseFrame, descent_ms: int, ascent_ms: int, rep_index: int = 0
+) -> RepAnalysis:
+    """Placeholder — implemented in Task 7."""
+    raise NotImplementedError("3D scoring lands in Task 7")
