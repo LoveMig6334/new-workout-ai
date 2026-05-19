@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 from typing import Optional
 import numpy as np
@@ -5,8 +6,10 @@ import numpy as np
 from feedback.prompt_th import SYSTEM_TH, build_user_prompt
 from analysis.types import RepAnalysis
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_MODEL_DIR = PROJECT_ROOT / "models" / "qwen3_5_4b_mxfp4"
+
+_THINK_BLOCK = re.compile(r"<think>.*?</think>\s*", flags=re.DOTALL)
 
 
 class ThaiCoachLLM:
@@ -35,7 +38,11 @@ class ThaiCoachLLM:
             {"role": "user", "content": user},
         ]
         prompt = apply_chat_template(
-            self._processor, self._config, messages, num_images=0
+            self._processor,
+            self._config,
+            messages,
+            num_images=0,
+            enable_thinking=False,
         )
         result = mlx_generate(
             self._model,
@@ -44,7 +51,8 @@ class ThaiCoachLLM:
             max_tokens=max_tokens,
             verbose=False,
         )
-        return getattr(result, "text", str(result)).strip()
+        text = getattr(result, "text", str(result))
+        return _THINK_BLOCK.sub("", text).strip()
 
     def warmup(self):
         """First call is slow due to compilation. Run once at app start."""
