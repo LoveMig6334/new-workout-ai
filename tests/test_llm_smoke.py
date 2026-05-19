@@ -1,6 +1,4 @@
-import os
 from pathlib import Path
-import numpy as np
 import pytest
 
 QWEN_DIR = Path(__file__).resolve().parent.parent / "models" / "qwen3_5_4b_mxfp4"

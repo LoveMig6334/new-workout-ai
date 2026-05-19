@@ -1,7 +1,5 @@
 import cv2
 import numpy as np
-import time
-import pytest
 from workout_ai.capture import WebcamCapture
 
 

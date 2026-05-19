@@ -3,7 +3,6 @@ from pathlib import Path
 from collections import deque
 import numpy as np
 import torch
-import yaml
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 MOTIONBERT_DIR = PROJECT_ROOT / "vendor" / "motionbert"

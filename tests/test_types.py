@@ -1,5 +1,5 @@
 import numpy as np
-from workout_ai.analysis.types import PoseFrame, PhaseState, RepAnalysis, RuleViolation
+from workout_ai.analysis.types import PoseFrame, PhaseState, RepAnalysis
 
 
 def test_pose_frame_construction():

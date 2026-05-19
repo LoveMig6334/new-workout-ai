@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
 import numpy as np
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -8,14 +8,28 @@ os.environ.setdefault("RTMLIB_CACHE", str(PROJECT_ROOT / "models" / "rtmlib_cach
 
 
 class Pose2D:
-    """Wraps rtmlib's RTMPose-l. Single-person inference: returns the highest-score person.
-    Optionally returns simcc-decoded heatmaps via `infer_with_heatmaps`."""
+    """Wraps rtmlib's RTMPose. Single-person inference: returns the highest-score person.
+    Optionally returns simcc-decoded heatmaps via `infer_with_heatmaps`.
 
-    def __init__(self, device: str = "cpu"):
+    `mode="lightweight"` loads YOLOX-tiny + RTMPose-s (~55 FPS on CPU at 720p, M-series).
+    `mode="balanced"` loads YOLOX-m + RTMPose-m (~12 FPS).
+    `mode="performance"` loads YOLOX-x + RTMPose-x (~3 FPS) — rtmlib's "performance" means
+    accuracy-first, not speed-first.
+
+    `device="mps"` (CoreML EP) currently crashes on every YOLOX variant in rtmlib due to a
+    dynamic-shape NMS op that fails when zero detections are produced. Stay on CPU until
+    rtmlib swaps to RTMO or onnxruntime gets a fix.
+    """
+
+    def __init__(
+        self,
+        device: str = "cpu",
+        mode: Literal["lightweight", "balanced", "performance"] = "lightweight",
+    ):
         from rtmlib import Body
 
         self._body = Body(
-            mode="performance", to_openpose=False, backend="onnxruntime", device=device
+            mode=mode, to_openpose=False, backend="onnxruntime", device=device
         )
 
         # rtmlib 0.0.15 exposes the pose estimator as `pose_model`
@@ -23,19 +37,20 @@ class Pose2D:
 
         if self._pose is not None:
             # Monkey-patch inference to capture raw simcc outputs for attention overlay.
-            _orig_inference = self._pose.inference
+            pose_model = self._pose
+            _orig_inference = pose_model.inference
 
             def _capturing_inference(image):
                 result = _orig_inference(image)
                 try:
                     # inference returns [simcc_x, simcc_y] — each shape (1, N_kpts, simcc_bins)
                     if isinstance(result, (list, tuple)) and len(result) == 2:
-                        self._pose._last_simcc = result
+                        pose_model._last_simcc = result
                 except Exception:
                     pass
                 return result
 
-            self._pose.inference = _capturing_inference
+            pose_model.inference = _capturing_inference
 
     def infer(self, image_bgr: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """Return (keypoints (17,2) float32, scores (17,) float32) for the most prominent person."""

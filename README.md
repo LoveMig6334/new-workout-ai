@@ -24,7 +24,7 @@ Keys:
 
 | Layer | Model | Framework |
 |---|---|---|
-| 2D pose | RTMPose-l | rtmlib (ONNX) |
+| 2D pose | YOLOX-tiny + RTMPose-s | rtmlib (ONNX, CPU) |
 | 3D lift | MotionBERT-Lite | PyTorch on MPS |
 | Form analysis | Joint angles + phase FSM + attention | pure Python |
 | Thai feedback | Qwen3.5-4B (mxfp4) | mlx-vlm |

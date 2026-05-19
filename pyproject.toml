@@ -35,5 +35,12 @@ pythonpath = ["src"]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[dependency-groups]
+dev = [
+    "ipywidgets>=8.1.8",
+    "jupyter>=1.1.1",
+    "matplotlib>=3.10.9",
+]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/workout_ai"]
