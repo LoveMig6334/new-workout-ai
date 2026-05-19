@@ -1,5 +1,5 @@
 import numpy as np
-from workout_ai.render import Renderer
+from render import Renderer
 
 
 def test_draw_skeleton_does_not_crash():

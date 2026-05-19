@@ -1,6 +1,6 @@
 import cv2
 import numpy as np
-from workout_ai.capture import WebcamCapture
+from capture import WebcamCapture
 
 
 def test_capture_thread_yields_frames(monkeypatch):

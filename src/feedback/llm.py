@@ -2,8 +2,8 @@ from pathlib import Path
 from typing import Optional
 import numpy as np
 
-from workout_ai.feedback.prompt_th import SYSTEM_TH, build_user_prompt
-from workout_ai.analysis.types import RepAnalysis
+from feedback.prompt_th import SYSTEM_TH, build_user_prompt
+from analysis.types import RepAnalysis
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 DEFAULT_MODEL_DIR = PROJECT_ROOT / "models" / "qwen3_5_4b_mxfp4"

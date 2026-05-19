@@ -1,5 +1,5 @@
 import numpy as np
-from workout_ai.analysis.attention import aggregate_heatmaps
+from analysis.attention import aggregate_heatmaps
 
 
 def test_aggregate_heatmaps_normalised_to_0_1():

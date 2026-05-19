@@ -7,7 +7,7 @@ FIXTURE = Path(__file__).parent / "fixtures" / "standing_person.jpg"
 
 @pytest.mark.skipif(not FIXTURE.exists(), reason="fixture image not downloaded")
 def test_pose2d_detects_keypoints_on_standing_person():
-    from workout_ai.pose2d import Pose2D
+    from pose2d import Pose2D
 
     img = cv2.imread(str(FIXTURE))
     assert img is not None

@@ -1,6 +1,6 @@
 import numpy as np
-from workout_ai.analysis.rules_squat import score_rep
-from workout_ai.analysis.types import PoseFrame
+from analysis.rules_squat import score_rep
+from analysis.types import PoseFrame
 
 
 def make_pose_frame(

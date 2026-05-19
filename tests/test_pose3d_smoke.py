@@ -19,7 +19,7 @@ CKPT = (
     reason="MotionBERT vendor code or checkpoint missing",
 )
 def test_pose3d_returns_17x3():
-    from workout_ai.pose3d import Pose3D
+    from pose3d import Pose3D
 
     lifter = Pose3D()
     window = np.zeros((27, 17, 3), dtype=np.float32)

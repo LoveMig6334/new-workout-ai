@@ -2,8 +2,8 @@ from dataclasses import dataclass
 from typing import Callable, Optional
 import numpy as np
 
-from workout_ai.analysis.angles import knee_angles
-from workout_ai.analysis.types import PhaseState
+from analysis.angles import knee_angles
+from analysis.types import PhaseState
 
 
 STAND_THRESHOLD = 160.0

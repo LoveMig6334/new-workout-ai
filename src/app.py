@@ -2,16 +2,16 @@ import time
 import cv2
 import numpy as np
 
-from workout_ai.capture import WebcamCapture
-from workout_ai.pose2d import Pose2D
-from workout_ai.pose3d import Pose3D, Pose3DBuffer, coco17_to_h36m17
-from workout_ai.render import Renderer
-from workout_ai.analysis.phases import SquatFSM
-from workout_ai.analysis.rules_squat import score_rep
-from workout_ai.analysis.attention import aggregate_heatmaps
-from workout_ai.analysis.types import PoseFrame, PhaseState
-from workout_ai.feedback.llm import ThaiCoachLLM
-from workout_ai.feedback.worker import LLMWorker
+from capture import WebcamCapture
+from pose2d import Pose2D
+from pose3d import Pose3D, Pose3DBuffer, coco17_to_h36m17
+from render import Renderer
+from analysis.phases import SquatFSM
+from analysis.rules_squat import score_rep
+from analysis.attention import aggregate_heatmaps
+from analysis.types import PoseFrame, PhaseState
+from feedback.llm import ThaiCoachLLM
+from feedback.worker import LLMWorker
 
 
 def run():

@@ -22,11 +22,11 @@ uv run ruff check                             # lint
 uv run ruff format                            # format
 ```
 
-`pytest.ini_options` sets `pythonpath = ["src"]`, so tests import as `from workout_ai.* import ...` without an editable install.
+`pytest.ini_options` sets `pythonpath = ["src"]`, so tests import as `from analysis.* import ...`, `from feedback.* import ...`, `from app import ...`, etc. without an editable install.
 
 ## Architecture
 
-Single-process pipeline driven by `src/workout_ai/app.py::run()`. The main loop reads webcam frames, runs them through pose inference and a finite-state machine, scores each completed rep, and ships the score to a background LLM thread for narration. The display is composed of the camera feed plus a right-hand panel that shows the 3D rig and Thai coaching text.
+Single-process pipeline driven by `src/app.py::run()`. The main loop reads webcam frames, runs them through pose inference and a finite-state machine, scores each completed rep, and ships the score to a background LLM thread for narration. The display is composed of the camera feed plus a right-hand panel that shows the 3D rig and Thai coaching text.
 
 Data flow per frame:
 
@@ -92,11 +92,11 @@ The main loop is the only consumer of OpenCV's GUI (`cv2.imshow` / `cv2.waitKey`
 
 Treat the pipeline as five separable stages and prefer iterating on each one in a notebook before wiring it back into `app.run()`. The natural cut points match the module boundaries:
 
-1. **Capture** (`workout_ai.capture`) — read a few frames, save as PNGs, sanity-check shape/FPS.
-2. **2D pose** (`workout_ai.pose2d`) — feed a still image, scatter the 17 keypoints with `matplotlib`, overlay the COCO skeleton from `render.SKELETON`.
-3. **3D lift** (`workout_ai.pose3d`) — build a 27-frame window manually (or replay from a saved `.npy`), call `Pose3D.infer`, plot the result with `mpl_toolkits.mplot3d`.
-4. **Analysis** (`workout_ai.analysis.*`) — these are pure functions; feed synthetic `PoseFrame`s and inspect `RepAnalysis` / FSM transitions step-by-step.
-5. **LLM** (`workout_ai.feedback.llm`) — call `ThaiCoachLLM.generate(rep)` directly with a hand-built `RepAnalysis`; useful for prompt tweaking without running the camera loop.
+1. **Capture** (`capture`) — read a few frames, save as PNGs, sanity-check shape/FPS.
+2. **2D pose** (`pose2d`) — feed a still image, scatter the 17 keypoints with `matplotlib`, overlay the COCO skeleton from `render.SKELETON`.
+3. **3D lift** (`pose3d`) — build a 27-frame window manually (or replay from a saved `.npy`), call `Pose3D.infer`, plot the result with `mpl_toolkits.mplot3d`.
+4. **Analysis** (`analysis.*`) — these are pure functions; feed synthetic `PoseFrame`s and inspect `RepAnalysis` / FSM transitions step-by-step.
+5. **LLM** (`feedback.llm`) — call `ThaiCoachLLM.generate(rep)` directly with a hand-built `RepAnalysis`; useful for prompt tweaking without running the camera loop.
 
 Notebook conventions:
 

@@ -1,10 +1,10 @@
-from workout_ai.analysis.angles import (
+from analysis.angles import (
     knee_angles,
     torso_lean_deg,
     hip_below_knee,
     knee_valgus_ratio,
 )
-from workout_ai.analysis.types import PoseFrame, RepAnalysis, RuleViolation
+from analysis.types import PoseFrame, RepAnalysis, RuleViolation
 
 VALGUS_THRESHOLD = 0.15
 

@@ -1,6 +1,6 @@
 import time
-from workout_ai.feedback.worker import LLMWorker
-from workout_ai.analysis.types import RepAnalysis
+from feedback.worker import LLMWorker
+from analysis.types import RepAnalysis
 
 
 class FakeLLM:

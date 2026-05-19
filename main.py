@@ -1,4 +1,4 @@
-from workout_ai.app import run
+from app import run
 
 
 def main():

@@ -43,4 +43,5 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/workout_ai"]
+packages = ["src/analysis", "src/feedback"]
+sources = ["src"]

@@ -1,4 +1,4 @@
-from workout_ai.analysis.types import RepAnalysis
+from analysis.types import RepAnalysis
 
 SYSTEM_TH = (
     "คุณเป็นโค้ชฟิตเนสที่ให้คำแนะนำเกี่ยวกับท่าสควอตอย่างกระชับและสุภาพ "

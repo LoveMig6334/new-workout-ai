@@ -1,6 +1,6 @@
 import numpy as np
-from workout_ai.analysis.phases import SquatFSM
-from workout_ai.analysis.types import PhaseState
+from analysis.phases import SquatFSM
+from analysis.types import PhaseState
 
 
 def make_kps(knee_angle_deg: float) -> np.ndarray:

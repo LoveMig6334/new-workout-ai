@@ -1,6 +1,6 @@
 import numpy as np
 import pytest
-from workout_ai.analysis.angles import (
+from analysis.angles import (
     angle_between_3_points,
     knee_angles,
     torso_lean_deg,

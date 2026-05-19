@@ -1,6 +1,6 @@
 import threading
 from typing import Optional
-from workout_ai.analysis.types import RepAnalysis
+from analysis.types import RepAnalysis
 
 
 class LLMWorker:

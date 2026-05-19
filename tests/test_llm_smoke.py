@@ -6,8 +6,8 @@ QWEN_DIR = Path(__file__).resolve().parent.parent / "models" / "qwen3_5_4b_mxfp4
 
 @pytest.mark.skipif(not QWEN_DIR.exists(), reason="Qwen model not downloaded")
 def test_llm_generates_thai_text():
-    from workout_ai.feedback.llm import ThaiCoachLLM
-    from workout_ai.analysis.types import RepAnalysis
+    from feedback.llm import ThaiCoachLLM
+    from analysis.types import RepAnalysis
 
     llm = ThaiCoachLLM()
     rep = RepAnalysis(
