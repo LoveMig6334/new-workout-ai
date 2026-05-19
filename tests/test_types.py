@@ -28,3 +28,28 @@ def test_rep_analysis_defaults():
     )
     assert ra.score == 85
     assert ra.violations == []
+
+
+def test_rep_analysis_has_default_metric_source_3d():
+    rep = RepAnalysis(
+        rep_index=0,
+        score=85,
+        components={"depth": 30, "valgus": 25, "torso": 20, "symmetry": 0, "tempo": 10},
+        violations=[],
+        descent_ms=1000,
+        ascent_ms=1000,
+    )
+    assert rep.metric_source == "3d"
+
+
+def test_rep_analysis_accepts_2d_metric_source():
+    rep = RepAnalysis(
+        rep_index=0,
+        score=50,
+        components={"depth": 0, "valgus": 25, "torso": 20, "symmetry": 0, "tempo": 5},
+        violations=[],
+        descent_ms=1000,
+        ascent_ms=1000,
+        metric_source="2d",
+    )
+    assert rep.metric_source == "2d"

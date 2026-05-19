@@ -41,3 +41,4 @@ class RepAnalysis:
     bottom_frame_keypoints_2d: Optional[np.ndarray] = None
     bottom_frame_keypoints_3d: Optional[np.ndarray] = None
     bottom_frame_image: Optional[np.ndarray] = None  # BGR HxWx3, optional for VLM
+    metric_source: str = "3d"  # "3d" (primary) or "2d" (fallback)
