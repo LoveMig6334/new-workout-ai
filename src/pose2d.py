@@ -1,10 +1,16 @@
-import os
 from pathlib import Path
 from typing import Literal, Optional
 import numpy as np
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-os.environ.setdefault("RTMLIB_CACHE", str(PROJECT_ROOT / "models" / "rtmlib_cache"))
+
+# rtmlib hardcodes its cache to ~/.cache/rtmlib via TORCH_HOME/XDG_CACHE_HOME and
+# ignores any RTMLIB_CACHE env var. Redirect it to the in-repo models/ folder by
+# patching the resolver before the first Body() instantiation triggers a download.
+import rtmlib.tools.file as _rtmlib_file  # noqa: E402
+
+_RTMLIB_HUB = PROJECT_ROOT / "models" / "rtmlib_cache" / "hub"
+_rtmlib_file._get_rtmhub_dir = lambda: str(_RTMLIB_HUB)
 
 
 class Pose2D:

@@ -1,6 +1,5 @@
 """Download all model artifacts into ./models/ at the project root."""
 
-import os
 import sys
 from pathlib import Path
 
@@ -11,7 +10,10 @@ MODELS_DIR = PROJECT_ROOT / "models"
 def download_rtmpose():
     """Pre-warm rtmlib's RTMPose-l download by instantiating it once."""
     print("[1/3] Downloading RTMPose-l via rtmlib...")
-    os.environ.setdefault("RTMLIB_CACHE", str(MODELS_DIR / "rtmlib_cache"))
+    import rtmlib.tools.file as _rtmlib_file
+
+    hub = MODELS_DIR / "rtmlib_cache" / "hub"
+    _rtmlib_file._get_rtmhub_dir = lambda: str(hub)
     from rtmlib import Body
 
     _ = Body(mode="performance", to_openpose=False, backend="onnxruntime", device="cpu")
