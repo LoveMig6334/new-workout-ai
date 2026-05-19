@@ -1,6 +1,6 @@
 import numpy as np
 
-from analysis.angles_3d import body_frame_axes
+from analysis.angles_3d import body_frame_axes, knee_flexion_3d
 
 
 def _canonical_standing_pose() -> np.ndarray:
@@ -35,3 +35,57 @@ def test_body_frame_axes_lateral_is_orthogonal_to_up_even_when_hipline_tilted():
     kps[4] = (-0.2, 0.1, 0.0)
     up, lat, _ = body_frame_axes(kps)
     assert abs(np.dot(up, lat)) < 1e-6
+
+
+def _both_legs_at_flexion(theta_deg: float) -> np.ndarray:
+    """Symmetric pose with both knees at the given flexion (degrees).
+
+    Geometry: thigh points straight up (knee→hip = (0, -1, 0) direction),
+    shin rotated about the lateral axis so the angle between knee→hip and
+    knee→ankle equals theta. theta=180° → straight leg; theta=90° → shin
+    perpendicular to thigh."""
+    import math
+
+    kps = _canonical_standing_pose()
+    bone = 0.3
+    theta = math.radians(theta_deg)
+    # knee→ankle direction in (y, z) sagittal plane:
+    # at theta=180°, points (0, +1, 0) (down in image, opposite of knee→hip).
+    # at theta=90°,  points (0, 0, +1) (forward).
+    # general: (0, -cos(theta), sin(theta))
+    shin_dir = np.array([0.0, -math.cos(theta), math.sin(theta)], dtype=np.float32)
+
+    for hip_x in (0.2, -0.2):
+        hip = np.array([hip_x, -bone, 0.0], dtype=np.float32)
+        knee = np.array([hip_x, 0.0, 0.0], dtype=np.float32)
+        ankle = knee + bone * shin_dir
+        if hip_x > 0:
+            kps[1] = hip  # R_HIP
+            kps[2] = knee  # R_KNEE
+            kps[3] = ankle  # R_ANKLE
+        else:
+            kps[4] = hip  # L_HIP
+            kps[5] = knee  # L_KNEE
+            kps[6] = ankle  # L_ANKLE
+    return kps
+
+
+def test_knee_flexion_3d_straight_leg_is_180():
+    kps = _both_legs_at_flexion(180.0)
+    left, right = knee_flexion_3d(kps)
+    assert abs(left - 180.0) < 0.5
+    assert abs(right - 180.0) < 0.5
+
+
+def test_knee_flexion_3d_right_angle_is_90():
+    kps = _both_legs_at_flexion(90.0)
+    left, right = knee_flexion_3d(kps)
+    assert abs(left - 90.0) < 0.5
+    assert abs(right - 90.0) < 0.5
+
+
+def test_knee_flexion_3d_degenerate_returns_nan():
+    kps = _canonical_standing_pose()
+    # All knee-related joints at origin — zero-length bones.
+    left, right = knee_flexion_3d(kps)
+    assert np.isnan(left) or np.isnan(right)

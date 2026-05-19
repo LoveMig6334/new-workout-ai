@@ -33,3 +33,33 @@ def body_frame_axes(
     lateral = _norm(lateral_raw)
     forward = np.cross(up, lateral)
     return up, lateral, forward
+
+
+def _angle_deg(v1: np.ndarray, v2: np.ndarray) -> float:
+    """Angle between two vectors in degrees.
+
+    Returns NaN if either vector has near-zero length.
+    """
+    n1 = float(np.linalg.norm(v1))
+    n2 = float(np.linalg.norm(v2))
+    if n1 < 1e-9 or n2 < 1e-9:
+        return float("nan")
+    cos = float(np.dot(v1, v2) / (n1 * n2))
+    cos = max(-1.0, min(1.0, cos))
+    return float(np.degrees(np.arccos(cos)))
+
+
+def knee_flexion_3d(kps_3d: np.ndarray) -> tuple[float, float]:
+    """Per-knee flexion in degrees, computed in full 3D. Returns (left, right).
+
+    180° = straight leg, smaller values = more bent. NaN if any bone has zero length.
+    """
+    left = _angle_deg(
+        kps_3d[L_HIP] - kps_3d[L_KNEE],
+        kps_3d[L_ANKLE] - kps_3d[L_KNEE],
+    )
+    right = _angle_deg(
+        kps_3d[R_HIP] - kps_3d[R_KNEE],
+        kps_3d[R_ANKLE] - kps_3d[R_KNEE],
+    )
+    return left, right
