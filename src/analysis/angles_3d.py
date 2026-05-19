@@ -63,3 +63,15 @@ def knee_flexion_3d(kps_3d: np.ndarray) -> tuple[float, float]:
         kps_3d[R_ANKLE] - kps_3d[R_KNEE],
     )
     return left, right
+
+
+# Image vertical in MotionBERT's normalized 3D frame (image-y down → up = -y).
+# This equals gravity-up when the camera is upright; the spec accepts this
+# camera-roll dependency for the current target (phone-on-tripod).
+IMAGE_UP = np.array([0.0, -1.0, 0.0], dtype=np.float32)
+
+
+def torso_lean_3d(kps_3d: np.ndarray) -> float:
+    """Angle in degrees between body_up (pelvis → thorax) and image vertical."""
+    torso = kps_3d[THORAX] - kps_3d[PELVIS]
+    return _angle_deg(torso, IMAGE_UP)

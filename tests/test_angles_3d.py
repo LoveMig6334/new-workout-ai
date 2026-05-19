@@ -1,6 +1,6 @@
 import numpy as np
 
-from analysis.angles_3d import body_frame_axes, knee_flexion_3d
+from analysis.angles_3d import body_frame_axes, knee_flexion_3d, torso_lean_3d
 
 
 def _canonical_standing_pose() -> np.ndarray:
@@ -89,3 +89,27 @@ def test_knee_flexion_3d_degenerate_returns_nan():
     # All knee-related joints at origin — zero-length bones.
     left, right = knee_flexion_3d(kps)
     assert np.isnan(left) or np.isnan(right)
+
+
+def test_torso_lean_3d_perfectly_upright_is_zero():
+    kps = _canonical_standing_pose()
+    assert abs(torso_lean_3d(kps)) < 0.5
+
+
+def test_torso_lean_3d_thirty_degrees_forward():
+    import math
+
+    kps = _canonical_standing_pose()
+    theta = math.radians(30.0)
+    # Lean thorax 30° forward (sagittal +z), unit-length torso.
+    kps[8] = (0.0, -math.cos(theta), math.sin(theta))
+    assert abs(torso_lean_3d(kps) - 30.0) < 0.5
+
+
+def test_torso_lean_3d_sixty_degrees_forward():
+    import math
+
+    kps = _canonical_standing_pose()
+    theta = math.radians(60.0)
+    kps[8] = (0.0, -math.cos(theta), math.sin(theta))
+    assert abs(torso_lean_3d(kps) - 60.0) < 0.5
