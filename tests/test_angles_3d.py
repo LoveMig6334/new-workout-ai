@@ -1,6 +1,19 @@
 import numpy as np
 
-from analysis.angles_3d import body_frame_axes, knee_flexion_3d, torso_lean_3d
+from analysis.angles_3d import (
+    body_frame_axes,
+    knee_flexion_3d,
+    torso_lean_3d,
+    valgus_offset_3d,
+)
+
+# H36M-17 indices for test use.
+R_HIP_IDX = 1
+R_KNEE_IDX = 2
+R_ANKLE_IDX = 3
+L_HIP_IDX = 4
+L_KNEE_IDX = 5
+L_ANKLE_IDX = 6
 
 
 def _canonical_standing_pose() -> np.ndarray:
@@ -113,3 +126,58 @@ def test_torso_lean_3d_sixty_degrees_forward():
     theta = math.radians(60.0)
     kps[8] = (0.0, -math.cos(theta), math.sin(theta))
     assert abs(torso_lean_3d(kps) - 60.0) < 0.5
+
+
+def _neutral_squat_3d() -> np.ndarray:
+    """3D fixture: neutral squat at the bottom. Knees and ankles directly below
+    hips in the body frame (no medial/lateral offset)."""
+    kps = _canonical_standing_pose()
+    # Knees at body-lat=±0.2, slightly forward, dropped 0.3 in image-y.
+    kps[R_KNEE_IDX] = (0.2, 0.3, 0.0)
+    kps[L_KNEE_IDX] = (-0.2, 0.3, 0.0)
+    # Ankles further forward (z), same lateral as knees.
+    kps[R_ANKLE_IDX] = (0.2, 0.3, 0.3)
+    kps[L_ANKLE_IDX] = (-0.2, 0.3, 0.3)
+    return kps
+
+
+def test_valgus_offset_3d_neutral_squat_is_zero():
+    kps = _neutral_squat_3d()
+    left, right = valgus_offset_3d(kps)
+    assert abs(left) < 0.05
+    assert abs(right) < 0.05
+
+
+def test_valgus_offset_3d_medial_knee_positive():
+    kps = _neutral_squat_3d()
+    # Push R knee toward midline (smaller lateral coord).
+    kps[R_KNEE_IDX] = (0.05, 0.3, 0.0)
+    left, right = valgus_offset_3d(kps)
+    assert right > 0.10
+    assert abs(left) < 0.05
+
+
+def test_valgus_offset_3d_lateral_knee_negative():
+    kps = _neutral_squat_3d()
+    # Push R knee outward (larger lateral coord).
+    kps[R_KNEE_IDX] = (0.5, 0.3, 0.0)
+    _, right = valgus_offset_3d(kps)
+    assert right < -0.10
+
+
+def test_valgus_offset_3d_invariant_under_body_rotation():
+    """Rotating the whole pose 90° about the image-y axis should not change
+    the valgus signal — this is the camera-angle-independence guarantee."""
+    kps_orig = _neutral_squat_3d()
+    kps_orig[R_KNEE_IDX] = (0.05, 0.3, 0.0)  # medial collapse on R
+    left1, right1 = valgus_offset_3d(kps_orig)
+
+    # Rotate 90° about y axis: (x, y, z) → (z, y, -x).
+    kps_rot = np.zeros_like(kps_orig)
+    for i in range(kps_orig.shape[0]):
+        x, y, z = kps_orig[i]
+        kps_rot[i] = (z, y, -x)
+    left2, right2 = valgus_offset_3d(kps_rot)
+
+    assert abs(right1 - right2) < 0.01
+    assert abs(left1 - left2) < 0.01

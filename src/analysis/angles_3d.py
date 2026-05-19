@@ -75,3 +75,46 @@ def torso_lean_3d(kps_3d: np.ndarray) -> float:
     """Angle in degrees between body_up (pelvis → thorax) and image vertical."""
     torso = kps_3d[THORAX] - kps_3d[PELVIS]
     return _angle_deg(torso, IMAGE_UP)
+
+
+def _project_frontal(
+    p: np.ndarray, lateral: np.ndarray, up: np.ndarray
+) -> np.ndarray:
+    """Project a 3D point onto the (lateral, up) frontal plane.
+    Returns a 2-vector (lat_coord, up_coord)."""
+    return np.array(
+        [float(np.dot(p, lateral)), float(np.dot(p, up))], dtype=np.float32
+    )
+
+
+def valgus_offset_3d(kps_3d: np.ndarray) -> tuple[float, float]:
+    """Signed perpendicular offset of each knee from the hip-ankle line in the
+    body's frontal plane, normalized by 3D shin length.
+
+    Sign convention: positive = medial (knee toward midline = valgus),
+    negative = lateral (knee outside the hip-ankle line).
+    Returns (left, right).
+    """
+    up, lateral, _ = body_frame_axes(kps_3d)
+
+    def _one_side(hip_i: int, knee_i: int, ankle_i: int, medial_sign: float) -> float:
+        h2 = _project_frontal(kps_3d[hip_i], lateral, up)
+        k2 = _project_frontal(kps_3d[knee_i], lateral, up)
+        a2 = _project_frontal(kps_3d[ankle_i], lateral, up)
+        d = a2 - h2
+        line_len = float(np.linalg.norm(d))
+        if line_len < 1e-9:
+            return 0.0
+        # Signed 2D cross product gives signed perpendicular distance × |d|.
+        cross = float(d[0] * (k2[1] - h2[1]) - d[1] * (k2[0] - h2[0]))
+        perp = cross / line_len
+        shin = float(np.linalg.norm(kps_3d[ankle_i] - kps_3d[knee_i]))
+        if shin < 1e-9:
+            return 0.0
+        return medial_sign * perp / shin
+
+    # See spec §Valgus: for R leg the cross-product convention puts medial on the
+    # negative side, so we flip the sign. For L leg the natural sign is medial-positive.
+    right = _one_side(R_HIP, R_KNEE, R_ANKLE, medial_sign=-1.0)
+    left = _one_side(L_HIP, L_KNEE, L_ANKLE, medial_sign=+1.0)
+    return left, right
