@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Literal, Optional
 import numpy as np
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 os.environ.setdefault("RTMLIB_CACHE", str(PROJECT_ROOT / "models" / "rtmlib_cache"))
 
 

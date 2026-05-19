@@ -4,7 +4,7 @@ from collections import deque
 import numpy as np
 import torch
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 MOTIONBERT_DIR = PROJECT_ROOT / "vendor" / "motionbert"
 CKPT_PATH = (
     PROJECT_ROOT
