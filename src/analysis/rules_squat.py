@@ -1,12 +1,13 @@
 from analysis.angles import (
     knee_angles,
     torso_lean_deg,
-    hip_below_knee,
     knee_valgus_ratio,
 )
 from analysis.types import PoseFrame, RepAnalysis, RuleViolation
 
 VALGUS_THRESHOLD = 0.15
+DEPTH_FULL_DEG = 90.0
+DEPTH_ZERO_DEG = 130.0
 
 
 def score_rep(
@@ -16,16 +17,29 @@ def score_rep(
     violations: list[RuleViolation] = []
     components: dict[str, int] = {}
 
-    # --- Depth (30 pts) ---
-    if hip_below_knee(kps):
+    l_knee_ang, r_knee_ang = knee_angles(kps)
+    mean_knee_ang = (l_knee_ang + r_knee_ang) / 2.0
+
+    # --- Depth (30 pts) — linear ramp on mean knee flexion ---
+    if mean_knee_ang <= DEPTH_FULL_DEG:
         components["depth"] = 30
-    else:
+    elif mean_knee_ang >= DEPTH_ZERO_DEG:
         components["depth"] = 0
         violations.append(
             RuleViolation(
                 name="shallow_depth",
                 severity=1.0,
-                detail_th="ลงไม่ลึกพอ สะโพกยังสูงกว่าหัวเข่า",
+                detail_th="ยังลงไม่ลึกพอ ลองงอเข่าให้สะโพกต่ำกว่าหัวเข่า",
+            )
+        )
+    else:
+        ratio = (DEPTH_ZERO_DEG - mean_knee_ang) / (DEPTH_ZERO_DEG - DEPTH_FULL_DEG)
+        components["depth"] = int(30 * ratio)
+        violations.append(
+            RuleViolation(
+                name="shallow_depth",
+                severity=1.0 - ratio,
+                detail_th="ยังลงไม่ลึกพอ ลองงอเข่าให้สะโพกต่ำกว่าหัวเข่า",
             )
         )
 
@@ -69,8 +83,7 @@ def score_rep(
         )
 
     # --- Symmetry (15 pts) ---
-    l_ang, r_ang = knee_angles(kps)
-    delta = abs(l_ang - r_ang)
+    delta = abs(l_knee_ang - r_knee_ang)
     if delta < 10.0:
         components["symmetry"] = 15
     else:
