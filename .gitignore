@@ -23,3 +23,9 @@ notebooks/data/
 
 # macOS
 .DS_Store
+
+# Secrets
+.env
+
+# Harness scratch (subagent worktrees, etc.)
+.claude/
