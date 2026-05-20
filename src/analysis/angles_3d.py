@@ -77,14 +77,10 @@ def torso_lean_3d(kps_3d: np.ndarray) -> float:
     return _angle_deg(torso, IMAGE_UP)
 
 
-def _project_frontal(
-    p: np.ndarray, lateral: np.ndarray, up: np.ndarray
-) -> np.ndarray:
+def _project_frontal(p: np.ndarray, lateral: np.ndarray, up: np.ndarray) -> np.ndarray:
     """Project a 3D point onto the (lateral, up) frontal plane.
     Returns a 2-vector (lat_coord, up_coord)."""
-    return np.array(
-        [float(np.dot(p, lateral)), float(np.dot(p, up))], dtype=np.float32
-    )
+    return np.array([float(np.dot(p, lateral)), float(np.dot(p, up))], dtype=np.float32)
 
 
 def valgus_offset_3d(kps_3d: np.ndarray) -> tuple[float, float]:

@@ -131,14 +131,14 @@ def _bent_legs_at_90() -> np.ndarray:
     """Symmetric squat at the bottom: both knees at 90°, neutral knee tracking,
     upright torso."""
     kps = np.zeros((17, 3), dtype=np.float32)
-    kps[0] = (0.0, 0.0, 0.0)        # pelvis
-    kps[1] = (0.2, 0.0, 0.0)        # R_hip
-    kps[4] = (-0.2, 0.0, 0.0)       # L_hip
-    kps[8] = (0.0, -1.0, 0.0)       # thorax (upright)
-    kps[2] = (0.2, 0.3, 0.0)        # R_knee directly below R_hip
-    kps[5] = (-0.2, 0.3, 0.0)       # L_knee
-    kps[3] = (0.2, 0.3, 0.3)        # R_ankle forward of knee → 90° flexion
-    kps[6] = (-0.2, 0.3, 0.3)       # L_ankle
+    kps[0] = (0.0, 0.0, 0.0)  # pelvis
+    kps[1] = (0.2, 0.0, 0.0)  # R_hip
+    kps[4] = (-0.2, 0.0, 0.0)  # L_hip
+    kps[8] = (0.0, -1.0, 0.0)  # thorax (upright)
+    kps[2] = (0.2, 0.3, 0.0)  # R_knee directly below R_hip
+    kps[5] = (-0.2, 0.3, 0.0)  # L_knee
+    kps[3] = (0.2, 0.3, 0.3)  # R_ankle forward of knee → 90° flexion
+    kps[6] = (-0.2, 0.3, 0.3)  # L_ankle
     return kps
 
 

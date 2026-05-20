@@ -20,10 +20,10 @@ def _canonical_standing_pose() -> np.ndarray:
     """Pelvis at origin, thorax 1 unit up (image-y down → up = -y),
     hips along ±x. Other H36M joints zero-initialized (unused by this fn)."""
     kps = np.zeros((17, 3), dtype=np.float32)
-    kps[0] = (0.0, 0.0, 0.0)       # pelvis
-    kps[1] = (0.2, 0.0, 0.0)       # R_hip
-    kps[4] = (-0.2, 0.0, 0.0)      # L_hip
-    kps[8] = (0.0, -1.0, 0.0)      # thorax
+    kps[0] = (0.0, 0.0, 0.0)  # pelvis
+    kps[1] = (0.2, 0.0, 0.0)  # R_hip
+    kps[4] = (-0.2, 0.0, 0.0)  # L_hip
+    kps[8] = (0.0, -1.0, 0.0)  # thorax
     return kps
 
 
