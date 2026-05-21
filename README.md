@@ -1,6 +1,6 @@
-# Workout AI — Real-Time Squat Form Coach (Thai)
+# Workout AI — Real-Time Form Coach (Thai)
 
-Real-time webcam-based squat form coach for macOS Apple Silicon.
+Real-time webcam-based form coach for macOS Apple Silicon. Currently supports squats; office-syndrome stretches (neck, shoulder, chest, hands, neck flexion) are designed and being added next via a plug-in exercise architecture.
 
 ## Setup
 
@@ -31,9 +31,15 @@ Keys:
 
 ## Acceptance criteria
 
+### Squat (current)
+
 - [ ] Skeleton overlay at ≥ 25 FPS on M2 or better.
 - [ ] 3D rig updates at ≥ 5 Hz.
 - [ ] Squat reps detected within ±1 over a 10-rep set.
 - [ ] 0–100 form score shown per rep + running average.
 - [ ] 2–3 sentence Thai feedback within 3 s of rep completion.
 - [ ] Models live in `./models/` and load from disk on subsequent runs.
+
+### Office syndrome stretches (designed, not yet implemented)
+
+Six exercises — neck, shoulder, chest-and-shoulder, front-hand, back-hand, neck-flexion — exposed as timed-hold sessions with a selector at startup. Design spec: [`docs/superpowers/specs/2026-05-22-office-syndrome-stretches-design.md`](docs/superpowers/specs/2026-05-22-office-syndrome-stretches-design.md).

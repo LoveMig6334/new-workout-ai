@@ -4,7 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Real-time webcam-based squat form coach for macOS Apple Silicon. Streams from the webcam, runs 2D pose → 3D pose → rule-based form analysis, and produces Thai-language coaching feedback from an on-device VLM at rep boundaries.
+Real-time webcam-based form coach for macOS Apple Silicon. Streams from the webcam, runs 2D pose → 3D pose → rule-based form analysis, and produces Thai-language coaching feedback from an on-device VLM.
+
+**Currently implemented**: squat (rep-based, FSM = STANDING → DESCENT → BOTTOM → ASCENT, LLM fires on rep completion).
+
+**Next, designed but not implemented**: six office-syndrome stretches (neck / shoulder / chest-and-shoulder / front-hand / back-hand / neck-flexion) as timed-hold sessions with a runtime selector. Spec at `docs/superpowers/specs/2026-05-22-office-syndrome-stretches-design.md`. When working on stretches, the pattern is: `HoldFSM` (new, alongside `SquatFSM`) + `rules_hold.py` (generic in-target scorer) + `exercises/` package (one module per exercise, mostly target-angle data). The selector picks the exercise so heavy weights (Qwen, MotionBERT) load once.
 
 ## Commands
 
@@ -133,4 +137,7 @@ Implications when making changes today:
 
 - Acceptance targets from the README (kept for orientation, not yet automated): 2D overlay ≥25 FPS, 3D rig ≥5 Hz, ±1 rep over a 10-rep set, Thai feedback within 3 s of rep completion.
 - Thai feedback wording (`prompt_th.py`, `rules_squat.py` `detail_th`) is intentionally short and polite — match the existing tone.
-- Design spec: `docs/superpowers/specs/2026-05-18-pose-form-coach-design.md`. Implementation plan: `docs/superpowers/plans/2026-05-18-pose-form-coach.md`.
+- Design specs:
+  - Original squat coach: `docs/superpowers/specs/2026-05-18-pose-form-coach-design.md` (impl plan: `docs/superpowers/plans/2026-05-18-pose-form-coach.md`).
+  - 3D scoring upgrade: `docs/superpowers/specs/2026-05-19-3d-scoring-design.md`.
+  - Office syndrome stretches: `docs/superpowers/specs/2026-05-22-office-syndrome-stretches-design.md`.
