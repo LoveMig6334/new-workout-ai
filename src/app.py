@@ -40,11 +40,12 @@ from selector import choose_routine
 _REQUIRED_KPS = (NOSE, L_SHOULDER, R_SHOULDER, L_HIP, R_HIP)
 _KP_FLOOR = 0.3
 _LIVE_SUBMIT_INTERVAL_S = 2.5
+# Derived from NeckStretchLeft; update if the routine adds a different exercise type.
 _VALID_VIEWS = NeckStretchLeft().target.valid_views
 _WINDOW = "Workout AI"
 
 # Fixed Thai cue phrases, pre-synthesized at startup so they play instantly.
-CUE_PHRASES = {
+_CUE_PHRASES = {
     "count_3": "สาม",
     "count_2": "สอง",
     "count_1": "หนึ่ง",
@@ -77,7 +78,7 @@ def run():
 
     print("Initializing TTS + pre-caching cues...")
     tts_worker = TTSWorker(GeminiTTS())
-    tts_worker.precache(CUE_PHRASES)
+    tts_worker.precache(_CUE_PHRASES)
     tts_worker.start()
     print("Ready.")
 
@@ -97,7 +98,7 @@ def run():
         cv2.destroyAllWindows()
 
 
-def _aggregate(set_analyses: list[HoldAnalysis], exercise) -> HoldAnalysis:
+def _aggregate(set_analyses: list[HoldAnalysis], exercise_name: str) -> HoldAnalysis:
     n = max(1, len(set_analyses))
     comp = {
         k: round(sum(a.components.get(k, 0) for a in set_analyses) / n)
@@ -109,7 +110,7 @@ def _aggregate(set_analyses: list[HoldAnalysis], exercise) -> HoldAnalysis:
             if v.name not in worst or v.severity > worst[v.name].severity:
                 worst[v.name] = v
     return HoldAnalysis(
-        exercise_name=exercise.name,
+        exercise_name=exercise_name,
         score=sum(comp.values()),
         components=comp,
         violations=list(worst.values()),
@@ -141,6 +142,7 @@ def run_neck_stretch_routine(cap, pose, worker, tts_worker, side_exercises, conf
     summary_submit_ts = 0.0
     spoke_summary = False
     view_bad_since: float | None = None
+    view_nudge_ts = 0.0
 
     while True:
         frame = cap.read_latest(timeout=2.0)
@@ -181,6 +183,7 @@ def run_neck_stretch_routine(cap, pose, worker, tts_worker, side_exercises, conf
                 tts_worker.play_cue(f"count_{ev.value}")
             elif ev.kind == EV_SET_STARTED:
                 tts_worker.play_cue(f"start_{ev.value}")
+                last_frame_ts = now
                 cur = {
                     "in_target_ms": 0,
                     "drift_count": 0,
@@ -203,7 +206,7 @@ def run_neck_stretch_routine(cap, pose, worker, tts_worker, side_exercises, conf
                 tts_worker.play_cue(f"switch_{ev.value}")
             elif ev.kind == EV_ROUTINE_COMPLETE:
                 tts_worker.play_cue("done")
-                agg = _aggregate(set_analyses, side_exercises["left"])
+                agg = _aggregate(set_analyses, side_exercises["left"].name)
                 worker.submit(agg, exercise=side_exercises["left"])
                 summary_submit_ts = now
                 spoke_summary = False
@@ -239,52 +242,54 @@ def run_neck_stretch_routine(cap, pose, worker, tts_worker, side_exercises, conf
             if not view_ok:
                 if view_bad_since is None:
                     view_bad_since = now
-                elif now - view_bad_since > 3.0:
+                elif now - view_bad_since > 3.0 and now - view_nudge_ts > 5.0:
                     tts_worker.play_cue("face_camera")
-                    view_bad_since = now + 5.0  # cooldown
+                    view_nudge_ts = now
             else:
                 view_bad_since = None
 
+        # Speak the LLM summary once, shortly after it's submitted.
+        if (
+            fsm.phase is RoutinePhase.SUMMARY
+            and not spoke_summary
+            and now - summary_submit_ts > 1.0
+        ):
+            t = worker.latest()
+            if t and not t.startswith("[LLM error"):
+                tts_worker.submit_feedback(t)
+                spoke_summary = True
+
         last_frame_ts = now
 
-        # Render the active screen for this phase.
-        canvas, spoke_summary = _compose(
-            fsm, frame, in_target, view_ok, worker, set_analyses,
-            summary_submit_ts, spoke_summary, now, tts_worker,
-        )
+        # Render the active screen for this phase (pure — no audio side-effects).
+        canvas = _compose(fsm, frame, in_target, view_ok, worker, set_analyses)
         cv2.imshow(_WINDOW, canvas)
         key = cv2.waitKey(1) & 0xFF
         if key == ord("q") or fsm.phase is RoutinePhase.DONE:
             return
 
 
-def _compose(fsm, frame, in_target, view_ok, worker, set_analyses,
-             summary_submit_ts, spoke_summary, now, tts_worker):
-    """Pick + draw the screen for the current phase. Returns (canvas, spoke_summary)."""
+def _compose(fsm, frame, in_target, view_ok, worker, set_analyses):
+    """Pick + draw the screen for the current phase. Pure — no audio side-effects."""
     phase = fsm.phase
     if phase is RoutinePhase.SETUP:
-        return screens.draw_setup(), spoke_summary
+        return screens.draw_setup()
     if phase is RoutinePhase.POSITIONING:
         return screens.draw_positioning(frame, fsm.position_progress,
-                                        ok=fsm.position_progress > 0.0), spoke_summary
+                                        ok=fsm.position_progress > 0.0)
     if phase is RoutinePhase.COUNTDOWN:
-        return screens.draw_countdown(frame, fsm.countdown_value, fsm.current_side), spoke_summary
+        return screens.draw_countdown(frame, fsm.countdown_value, fsm.current_side)
     if phase is RoutinePhase.HOLD:
         thai = worker.latest() or ""
         return screens.draw_hold(frame, fsm.current_side, fsm.hold_remaining_s,
-                                 in_target, view_ok, thai), spoke_summary
+                                 in_target, view_ok, thai)
     if phase is RoutinePhase.TRANSITION:
-        return screens.draw_transition(frame, fsm.next_side), spoke_summary
+        return screens.draw_transition(frame, fsm.next_side)
     # SUMMARY / DONE
     scores = [a.score for a in set_analyses]
     overall = round(sum(scores) / len(scores)) if scores else 0
-    if not spoke_summary and now - summary_submit_ts > 1.0:
-        t = worker.latest()
-        if t and not t.startswith("[LLM error"):
-            tts_worker.submit_feedback(t)
-            spoke_summary = True
     summary_txt = worker.latest() or ""
-    return screens.draw_summary(scores, overall, summary_txt), spoke_summary
+    return screens.draw_summary(scores, overall, summary_txt)
 
 
 if __name__ == "__main__":
