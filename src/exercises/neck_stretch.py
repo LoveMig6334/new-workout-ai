@@ -13,7 +13,9 @@ from exercises.base import JointTarget, PromptTemplate, TargetPose
 # image space." When `measure()` is called without a baseline (e.g. legacy
 # tests), the delta-subtraction is skipped — same absolute behavior as before.
 _NECK_TILT_TARGET_LEFT_DEG = -35.0
+_NECK_TILT_TARGET_RIGHT_DEG = 35.0
 _NECK_TILT_TOLERANCE_DEG = 10.0
+_HOLD_SECONDS = 25.0
 
 
 _LIVE_TH = (
@@ -32,6 +34,21 @@ _SUMMARY_TH = (
 )
 
 
+def _measure_head_lateral_tilt(
+    frame: PoseFrame, baseline: Optional[BaselinePose]
+) -> dict[str, float]:
+    """Shared measure for both neck-stretch sides: 2D head-lateral-tilt,
+    baseline-subtracted when a BaselinePose is supplied (NaN-preserving)."""
+    tilt = head_lateral_tilt_2d(frame.keypoints_2d, frame.scores)
+    if (
+        baseline is not None
+        and not math.isnan(tilt)
+        and not math.isnan(baseline.head_lateral_tilt_deg)
+    ):
+        tilt = tilt - baseline.head_lateral_tilt_deg
+    return {"head_lateral_tilt": tilt}
+
+
 class NeckStretchLeft:
     name = "neck_stretch_left"
     display_th = "ยืดคอด้านซ้าย"
@@ -44,7 +61,7 @@ class NeckStretchLeft:
                 detail_th="เอียงศีรษะไปทางซ้ายมากขึ้นอีกนิด",
             ),
         ),
-        hold_seconds=20.0,
+        hold_seconds=_HOLD_SECONDS,
         side="left",
         # Neck-tilt-2d uses nose + shoulders, which are reliable in front and
         # three-quarter views. Side view collapses both shoulders onto one
@@ -58,11 +75,30 @@ class NeckStretchLeft:
         frame: PoseFrame,
         baseline: Optional[BaselinePose] = None,
     ) -> dict[str, float]:
-        tilt = head_lateral_tilt_2d(frame.keypoints_2d, frame.scores)
-        if (
-            baseline is not None
-            and not math.isnan(tilt)
-            and not math.isnan(baseline.head_lateral_tilt_deg)
-        ):
-            tilt = tilt - baseline.head_lateral_tilt_deg
-        return {"head_lateral_tilt": tilt}
+        return _measure_head_lateral_tilt(frame, baseline)
+
+
+class NeckStretchRight:
+    name = "neck_stretch_right"
+    display_th = "ยืดคอด้านขวา"
+    target = TargetPose(
+        joints=(
+            JointTarget(
+                name="head_lateral_tilt",
+                target_deg=_NECK_TILT_TARGET_RIGHT_DEG,
+                tolerance_deg=_NECK_TILT_TOLERANCE_DEG,
+                detail_th="เอียงศีรษะไปทางขวามากขึ้นอีกนิด",
+            ),
+        ),
+        hold_seconds=_HOLD_SECONDS,
+        side="right",
+        valid_views=(CameraView.FRONT, CameraView.THREE_QUARTER),
+    )
+    prompt = PromptTemplate(live=_LIVE_TH, summary=_SUMMARY_TH)
+
+    def measure(
+        self,
+        frame: PoseFrame,
+        baseline: Optional[BaselinePose] = None,
+    ) -> dict[str, float]:
+        return _measure_head_lateral_tilt(frame, baseline)

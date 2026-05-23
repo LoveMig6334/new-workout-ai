@@ -35,7 +35,7 @@ def test_metadata():
     ex = NeckStretchLeft()
     assert ex.name == "neck_stretch_left"
     assert ex.target.side == "left"
-    assert ex.target.hold_seconds == 20.0
+    assert ex.target.hold_seconds == 25.0
     assert len(ex.target.joints) == 1
     assert ex.target.joints[0].name == "head_lateral_tilt"
 
@@ -179,3 +179,34 @@ def test_measure_with_baseline_preserves_nan_propagation():
     scores[0] = 0.05  # nose unreliable → NaN
     result = ex.measure(_make_frame(kps, scores), baseline=_baseline(-5.0))
     assert math.isnan(result["head_lateral_tilt"])
+
+
+from exercises.neck_stretch import NeckStretchRight
+
+
+def test_right_metadata():
+    ex = NeckStretchRight()
+    assert ex.name == "neck_stretch_right"
+    assert ex.target.side == "right"
+    assert ex.target.hold_seconds == 25.0
+    assert ex.target.joints[0].name == "head_lateral_tilt"
+    assert ex.target.joints[0].target_deg == 35.0
+
+
+def test_right_valid_views_exclude_side():
+    ex = NeckStretchRight()
+    assert CameraView.SIDE not in ex.target.valid_views
+    assert CameraView.FRONT in ex.target.valid_views
+
+
+def test_right_measure_sign_for_right_tilt_is_positive():
+    """Nose shifted to +x (toward R_shoulder) must yield a POSITIVE tilt to
+    match the NeckStretchRight target of +35°."""
+    ex = NeckStretchRight()
+    kps, scores = _kps2d_with_head_shifted(+30.0)
+    result = ex.measure(_make_frame(kps, scores))
+    assert result["head_lateral_tilt"] > 0
+
+
+def test_left_hold_is_now_25s():
+    assert NeckStretchLeft().target.hold_seconds == 25.0
