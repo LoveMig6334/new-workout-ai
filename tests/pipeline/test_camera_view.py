@@ -1,5 +1,4 @@
 import numpy as np
-import pytest
 
 from analysis.camera_view import CameraView, classify_view
 
@@ -33,13 +32,17 @@ def test_front_view_when_shoulders_level_and_both_ears_visible():
 
 def test_side_view_when_shoulders_almost_overlap():
     """Side view collapses the projected shoulder width: width_x / |Δy| is small."""
-    kps, scores = _kps_with_visible_ears(shoulder_dx=15.0, shoulder_dy=8.0, l_ear_conf=0.05)
+    kps, scores = _kps_with_visible_ears(
+        shoulder_dx=15.0, shoulder_dy=8.0, l_ear_conf=0.05
+    )
     assert classify_view(kps, scores) == CameraView.SIDE
 
 
 def test_side_view_when_only_one_ear_visible():
     """Frontal-ish geometry but one ear gone → side or three-quarter, never FRONT."""
-    kps, scores = _kps_with_visible_ears(shoulder_dx=100.0, shoulder_dy=0.0, r_ear_conf=0.05)
+    kps, scores = _kps_with_visible_ears(
+        shoulder_dx=100.0, shoulder_dy=0.0, r_ear_conf=0.05
+    )
     result = classify_view(kps, scores)
     assert result in (CameraView.SIDE, CameraView.THREE_QUARTER)
 

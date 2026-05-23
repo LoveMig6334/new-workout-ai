@@ -233,7 +233,9 @@ def _side_view_fixture(
 def test_cva_upright_is_90deg():
     """Ear directly above shoulder → CVA = 90° (perfectly upright)."""
     kps, scores = _side_view_fixture(ear_dy_above_shoulder=100.0, ear_dx_in_front=0.0)
-    assert craniovertebral_angle_2d(kps, scores, side="left") == pytest.approx(90.0, abs=0.5)
+    assert craniovertebral_angle_2d(kps, scores, side="left") == pytest.approx(
+        90.0, abs=0.5
+    )
 
 
 def test_cva_forward_head_drops_below_50():
@@ -255,7 +257,9 @@ def test_cva_auto_picks_higher_confidence_side():
     kps, scores = _side_view_fixture(ear_dy_above_shoulder=100.0, ear_dx_in_front=0.0)
     # Wreck the right ear, leave left clean → auto must pick left and still report ~90°.
     scores[4] = 0.05  # R_ear bad
-    assert craniovertebral_angle_2d(kps, scores, side="auto") == pytest.approx(90.0, abs=0.5)
+    assert craniovertebral_angle_2d(kps, scores, side="auto") == pytest.approx(
+        90.0, abs=0.5
+    )
 
 
 def test_forward_head_offset_zero_when_aligned():
@@ -263,13 +267,18 @@ def test_forward_head_offset_zero_when_aligned():
     kps, scores = _shoulders_and_nose(nose_dx=0.0)
     kps[3] = kps[5]  # L_ear directly above L_shoulder
     kps[4] = kps[6]
-    assert forward_head_offset_normalized_2d(kps, scores) == pytest.approx(0.0, abs=0.001)
+    assert forward_head_offset_normalized_2d(kps, scores) == pytest.approx(
+        0.0, abs=0.001
+    )
 
 
 def test_forward_head_offset_normalized_by_shoulder_width():
     kps, scores = _shoulders_and_nose(nose_dx=0.0)
     # Shoulder width = 100 px. Move ears 30 px forward (away from midline) — offset = 0.30.
-    kps[3] = (kps[5, 0] - 30.0, kps[5, 1] - 80.0)  # ear shifted in image-left = forward for the user
+    kps[3] = (
+        kps[5, 0] - 30.0,
+        kps[5, 1] - 80.0,
+    )  # ear shifted in image-left = forward for the user
     kps[4] = (kps[6, 0] + 30.0, kps[6, 1] - 80.0)
     val = forward_head_offset_normalized_2d(kps, scores)
     assert val == pytest.approx(0.30, abs=0.01)
@@ -372,12 +381,16 @@ def test_wrist_extension_negative_when_wrist_above_elbow():
     scores = np.ones(17, dtype=np.float32) * 0.9
     val = wrist_extension_2d(kps, scores, side="left")
     assert val < 0
-    assert val == pytest.approx(-1.0 / np.sqrt(2), abs=0.05)  # 100 dy / sqrt(100² + 100²)
+    assert val == pytest.approx(
+        -1.0 / np.sqrt(2), abs=0.05
+    )  # 100 dy / sqrt(100² + 100²)
 
 
 def test_wrist_extension_nan_when_side_missing():
     kps = np.zeros((17, 2), dtype=np.float32)
-    kps[7] = (100.0, 300.0); kps[9] = (200.0, 300.0)
-    kps[8] = (110.0, 300.0); kps[10] = (210.0, 300.0)
+    kps[7] = (100.0, 300.0)
+    kps[9] = (200.0, 300.0)
+    kps[8] = (110.0, 300.0)
+    kps[10] = (210.0, 300.0)
     scores = np.zeros(17, dtype=np.float32)  # ALL low confidence
     assert math.isnan(wrist_extension_2d(kps, scores, side="auto"))

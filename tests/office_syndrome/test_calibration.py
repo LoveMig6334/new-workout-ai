@@ -20,8 +20,8 @@ def _sample(
     """
     kps = np.zeros((17, 2), dtype=np.float32)
     kps[5] = (100.0, 200.0 + shoulder_dy)  # L_shoulder (y shifted down by dy)
-    kps[6] = (200.0, 200.0)                 # R_shoulder
-    kps[0] = (150.0 + nose_dx, 100.0)       # nose
+    kps[6] = (200.0, 200.0)  # R_shoulder
+    kps[0] = (150.0 + nose_dx, 100.0)  # nose
     scores = np.ones(17, dtype=np.float32) * 0.9
     scores[0] = nose_conf
     scores[5] = sh_conf

@@ -169,10 +169,7 @@ def forward_head_offset_normalized_2d(
     shoulder width is collapsed.
     """
     if scores is not None:
-        if (
-            scores[L_SHOULDER] < score_threshold
-            or scores[R_SHOULDER] < score_threshold
-        ):
+        if scores[L_SHOULDER] < score_threshold or scores[R_SHOULDER] < score_threshold:
             return float("nan")
     shoulder_width = abs(float(kps_2d[R_SHOULDER, 0] - kps_2d[L_SHOULDER, 0]))
     if shoulder_width < 1e-6:
@@ -304,9 +301,7 @@ def wrist_extension_2d(
     if not pairs:
         return float("nan")
     wrist_i, elbow_i, _ = max(pairs, key=lambda t: t[2])
-    forearm_len = float(
-        np.linalg.norm(kps_2d[wrist_i] - kps_2d[elbow_i])
-    )
+    forearm_len = float(np.linalg.norm(kps_2d[wrist_i] - kps_2d[elbow_i]))
     if forearm_len < 1e-6:
         return float("nan")
     # Image y grows down; wrist BELOW elbow means wrist.y > elbow.y → positive.

@@ -131,7 +131,9 @@ def test_measure_without_baseline_returns_absolute_tilt():
     ex = NeckStretchLeft()
     kps, scores = _kps2d_with_head_shifted(-30.0)
     no_baseline = ex.measure(_make_frame(kps, scores))["head_lateral_tilt"]
-    explicit_none = ex.measure(_make_frame(kps, scores), baseline=None)["head_lateral_tilt"]
+    explicit_none = ex.measure(_make_frame(kps, scores), baseline=None)[
+        "head_lateral_tilt"
+    ]
     assert no_baseline == explicit_none
 
 
@@ -146,11 +148,15 @@ def test_measure_with_baseline_subtracts_neutral():
     abs_tilt = ex.measure(_make_frame(kps, scores))["head_lateral_tilt"]
 
     baseline = _baseline(tilt_deg=-5.0)
-    delta_tilt = ex.measure(_make_frame(kps, scores), baseline=baseline)["head_lateral_tilt"]
+    delta_tilt = ex.measure(_make_frame(kps, scores), baseline=baseline)[
+        "head_lateral_tilt"
+    ]
 
     # delta = abs - (-5.0) = abs + 5.0  (less negative than abs)
     assert delta_tilt == abs_tilt - (-5.0)
-    assert delta_tilt > abs_tilt  # less negative — user only gets credit for tilt beyond neutral
+    assert (
+        delta_tilt > abs_tilt
+    )  # less negative — user only gets credit for tilt beyond neutral
 
 
 def test_measure_with_zero_baseline_matches_absolute():
@@ -159,7 +165,9 @@ def test_measure_with_zero_baseline_matches_absolute():
     ex = NeckStretchLeft()
     kps, scores = _kps2d_with_head_shifted(-30.0)
     abs_tilt = ex.measure(_make_frame(kps, scores))["head_lateral_tilt"]
-    delta_tilt = ex.measure(_make_frame(kps, scores), baseline=_baseline(0.0))["head_lateral_tilt"]
+    delta_tilt = ex.measure(_make_frame(kps, scores), baseline=_baseline(0.0))[
+        "head_lateral_tilt"
+    ]
     assert delta_tilt == abs_tilt
 
 

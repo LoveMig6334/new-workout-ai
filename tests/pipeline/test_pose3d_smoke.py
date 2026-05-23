@@ -2,7 +2,9 @@ import numpy as np
 import pytest
 from pathlib import Path
 
-MOTIONBERT_PATH = Path(__file__).resolve().parent.parent.parent / "vendor" / "motionbert"
+MOTIONBERT_PATH = (
+    Path(__file__).resolve().parent.parent.parent / "vendor" / "motionbert"
+)
 CKPT = (
     Path(__file__).resolve().parent.parent.parent
     / "models"

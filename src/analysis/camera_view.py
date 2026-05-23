@@ -31,8 +31,8 @@ from analysis.angles import L_EAR, L_SHOULDER, R_EAR, R_SHOULDER
 # show consistent mis-classification.
 _EAR_CONFIDENCE_THRESHOLD = 0.3
 _SHOULDER_CONFIDENCE_THRESHOLD = 0.3
-_FRONT_SHOULDER_RATIO = 10.0   # |shoulder_dx / shoulder_dy| ≥ this → front
-_SIDE_SHOULDER_RATIO = 4.0     # ≤ this → side (when ear visibility is also collapsed)
+_FRONT_SHOULDER_RATIO = 10.0  # |shoulder_dx / shoulder_dy| ≥ this → front
+_SIDE_SHOULDER_RATIO = 4.0  # ≤ this → side (when ear visibility is also collapsed)
 
 
 class CameraView(str, Enum):

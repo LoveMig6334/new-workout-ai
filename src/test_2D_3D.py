@@ -91,11 +91,22 @@ JOINT_VISIBILITY_THRESHOLD = 0.3
 
 # H36M-17 skeleton bones. Per-frame visibility decides which subset draws.
 H36M_BONES = [
-    (0, 1), (1, 2), (2, 3),                  # right leg (pelvis → R_hip → R_knee → R_ankle)
-    (0, 4), (4, 5), (5, 6),                  # left leg
-    (0, 7), (7, 8), (8, 9), (9, 10),         # pelvis → spine → thorax → neck → head
-    (8, 11), (11, 12), (12, 13),             # left arm
-    (8, 14), (14, 15), (15, 16),             # right arm
+    (0, 1),
+    (1, 2),
+    (2, 3),  # right leg (pelvis → R_hip → R_knee → R_ankle)
+    (0, 4),
+    (4, 5),
+    (5, 6),  # left leg
+    (0, 7),
+    (7, 8),
+    (8, 9),
+    (9, 10),  # pelvis → spine → thorax → neck → head
+    (8, 11),
+    (11, 12),
+    (12, 13),  # left arm
+    (8, 14),
+    (14, 15),
+    (15, 16),  # right arm
 ]
 
 
@@ -112,8 +123,19 @@ def _draw_text(
     scale: float = 0.55,
     thick: int = 1,
 ) -> None:
-    cv2.putText(img, text, org, cv2.FONT_HERSHEY_SIMPLEX, scale, (0, 0, 0), thick + 2, cv2.LINE_AA)
-    cv2.putText(img, text, org, cv2.FONT_HERSHEY_SIMPLEX, scale, color, thick, cv2.LINE_AA)
+    cv2.putText(
+        img,
+        text,
+        org,
+        cv2.FONT_HERSHEY_SIMPLEX,
+        scale,
+        (0, 0, 0),
+        thick + 2,
+        cv2.LINE_AA,
+    )
+    cv2.putText(
+        img, text, org, cv2.FONT_HERSHEY_SIMPLEX, scale, color, thick, cv2.LINE_AA
+    )
 
 
 def _health_color(value: float, healthy: bool) -> tuple[int, int, int]:
@@ -184,8 +206,22 @@ def _draw_head_tilt_2d_overlay(
     r = kps[R_SHOULDER]
     n = kps[NOSE]
     mid = (l + r) / 2.0
-    cv2.line(img, (int(l[0]), int(l[1])), (int(r[0]), int(r[1])), (0, 180, 255), 2, cv2.LINE_AA)
-    cv2.line(img, (int(mid[0]), int(mid[1])), (int(n[0]), int(n[1])), (60, 60, 255), 2, cv2.LINE_AA)
+    cv2.line(
+        img,
+        (int(l[0]), int(l[1])),
+        (int(r[0]), int(r[1])),
+        (0, 180, 255),
+        2,
+        cv2.LINE_AA,
+    )
+    cv2.line(
+        img,
+        (int(mid[0]), int(mid[1])),
+        (int(n[0]), int(n[1])),
+        (60, 60, 255),
+        2,
+        cv2.LINE_AA,
+    )
     cv2.circle(img, (int(mid[0]), int(mid[1])), 5, (0, 180, 255), -1, cv2.LINE_AA)
 
 
@@ -199,25 +235,27 @@ def _h36m_joint_confidences(scores: np.ndarray) -> np.ndarray:
     the frame rather than appearing all-at-once at a single global threshold.
     """
     out = np.zeros(17, dtype=np.float32)
-    out[0]  = float(min(scores[L_HIP], scores[R_HIP]))          # pelvis = midpoint of hips
-    out[1]  = float(scores[R_HIP])                              # R_hip
-    out[2]  = float(scores[R_KNEE])                             # R_knee
-    out[3]  = float(scores[R_ANKLE])                            # R_ankle
-    out[4]  = float(scores[L_HIP])                              # L_hip
-    out[5]  = float(scores[L_KNEE])                             # L_knee
-    out[6]  = float(scores[L_ANKLE])                            # L_ankle
-    out[7]  = float(                                            # spine: shoulders + hips
+    out[0] = float(min(scores[L_HIP], scores[R_HIP]))  # pelvis = midpoint of hips
+    out[1] = float(scores[R_HIP])  # R_hip
+    out[2] = float(scores[R_KNEE])  # R_knee
+    out[3] = float(scores[R_ANKLE])  # R_ankle
+    out[4] = float(scores[L_HIP])  # L_hip
+    out[5] = float(scores[L_KNEE])  # L_knee
+    out[6] = float(scores[L_ANKLE])  # L_ankle
+    out[7] = float(  # spine: shoulders + hips
         min(scores[L_SHOULDER], scores[R_SHOULDER], scores[L_HIP], scores[R_HIP])
     )
-    out[8]  = float(min(scores[L_SHOULDER], scores[R_SHOULDER]))  # thorax = mid-shoulders
-    out[9]  = float(scores[NOSE])                               # neck   (synth from nose)
-    out[10] = float(scores[NOSE])                               # head   (synth from nose)
+    out[8] = float(
+        min(scores[L_SHOULDER], scores[R_SHOULDER])
+    )  # thorax = mid-shoulders
+    out[9] = float(scores[NOSE])  # neck   (synth from nose)
+    out[10] = float(scores[NOSE])  # head   (synth from nose)
     out[11] = float(scores[L_SHOULDER])
-    out[12] = float(scores[7])                                  # COCO L_elbow
-    out[13] = float(scores[9])                                  # COCO L_wrist
+    out[12] = float(scores[7])  # COCO L_elbow
+    out[13] = float(scores[9])  # COCO L_wrist
     out[14] = float(scores[R_SHOULDER])
-    out[15] = float(scores[8])                                  # COCO R_elbow
-    out[16] = float(scores[10])                                 # COCO R_wrist
+    out[15] = float(scores[8])  # COCO R_elbow
+    out[16] = float(scores[10])  # COCO R_wrist
     return out
 
 
@@ -249,15 +287,25 @@ def _render_rig_3d(
     x0, y0, w, h = box
     cv2.rectangle(panel, (x0, y0), (x0 + w, y0 + h), (60, 60, 60), 1)
     if rig is None:
-        _draw_text(panel, "warming up (need 27 frames)", (x0 + 12, y0 + h // 2),
-                   color=(160, 160, 160), scale=0.5)
+        _draw_text(
+            panel,
+            "warming up (need 27 frames)",
+            (x0 + 12, y0 + h // 2),
+            color=(160, 160, 160),
+            scale=0.5,
+        )
         return
 
     visible = joint_conf >= threshold
     visible_idxs = np.where(visible)[0]
     if visible_idxs.size == 0:
-        _draw_text(panel, "no joints detected", (x0 + 12, y0 + h // 2),
-                   color=(160, 160, 160), scale=0.5)
+        _draw_text(
+            panel,
+            "no joints detected",
+            (x0 + 12, y0 + h // 2),
+            color=(160, 160, 160),
+            scale=0.5,
+        )
         return
 
     pts = rig[:, :2].astype(np.float32)
@@ -315,7 +363,9 @@ def _try_load_pose3d():
     return lifter, Pose3DBuffer(lifter), coco17_to_h36m17
 
 
-def _tilt_status(tilt: float, target: float, tol: float) -> tuple[str, tuple[int, int, int]]:
+def _tilt_status(
+    tilt: float, target: float, tol: float
+) -> tuple[str, tuple[int, int, int]]:
     if np.isnan(tilt):
         return "no measurement", (160, 160, 160)
     if abs(tilt - target) <= tol:
@@ -328,10 +378,10 @@ def run() -> None:
     target = exercise.target.joints[0].target_deg
     tol = exercise.target.joints[0].tolerance_deg
 
-    print(f"[test_2D_3D] Loading 2D pose (default: balanced + CoreML)...")
+    print("[test_2D_3D] Loading 2D pose (default: balanced + CoreML)...")
     pose2d = Pose2D()  # balanced + coreml default
 
-    print(f"[test_2D_3D] Loading 3D lifter (MotionBERT-Lite)...")
+    print("[test_2D_3D] Loading 3D lifter (MotionBERT-Lite)...")
     lifter, buf, coco_to_h36m = _try_load_pose3d()
     have_3d = lifter is not None
 
@@ -351,7 +401,9 @@ def run() -> None:
     lift_stamps: list[float] = []
     # MotionBERT returns the centre of its 27-frame window, so the rig trails
     # live by ~half a window at the push rate. Surfaced in the readout.
-    lift_lag_ms = (lifter.window_size // 2) / _POSE_INFERENCE_HZ * 1000 if have_3d else 0.0
+    lift_lag_ms = (
+        (lifter.window_size // 2) / _POSE_INFERENCE_HZ * 1000 if have_3d else 0.0
+    )
 
     # Smooth FPS over a small window.
     frame_times: list[float] = []
@@ -449,23 +501,47 @@ def run() -> None:
                 12,
                 52,
                 [
-                    (f"head tilt : {tilt_2d:+5.1f}deg" if not np.isnan(tilt_2d) else "head tilt :   --",
-                     _health_color(tilt_2d, abs(tilt_2d - target) <= tol)),
-                    (f"CVA       : {cva:5.1f}deg" if not np.isnan(cva) else "CVA       :   --",
-                     _health_color(cva, cva >= 50.0)),
-                    (f"fwd head  : {fwd_head:5.2f}" if not np.isnan(fwd_head) else "fwd head  :   --",
-                     _health_color(fwd_head, fwd_head < 0.30)),
-                    (f"neck flex : {neck_flex:+5.1f}deg" if not np.isnan(neck_flex) else "neck flex :   --",
-                     _health_color(neck_flex, abs(neck_flex) < 25.0)),
-                    (f"sh asym   : {sh_asym:+5.2f}" if not np.isnan(sh_asym) else "sh asym   :   --",
-                     _health_color(sh_asym, abs(sh_asym) < 0.05)),
+                    (
+                        f"head tilt : {tilt_2d:+5.1f}deg"
+                        if not np.isnan(tilt_2d)
+                        else "head tilt :   --",
+                        _health_color(tilt_2d, abs(tilt_2d - target) <= tol),
+                    ),
+                    (
+                        f"CVA       : {cva:5.1f}deg"
+                        if not np.isnan(cva)
+                        else "CVA       :   --",
+                        _health_color(cva, cva >= 50.0),
+                    ),
+                    (
+                        f"fwd head  : {fwd_head:5.2f}"
+                        if not np.isnan(fwd_head)
+                        else "fwd head  :   --",
+                        _health_color(fwd_head, fwd_head < 0.30),
+                    ),
+                    (
+                        f"neck flex : {neck_flex:+5.1f}deg"
+                        if not np.isnan(neck_flex)
+                        else "neck flex :   --",
+                        _health_color(neck_flex, abs(neck_flex) < 25.0),
+                    ),
+                    (
+                        f"sh asym   : {sh_asym:+5.2f}"
+                        if not np.isnan(sh_asym)
+                        else "sh asym   :   --",
+                        _health_color(sh_asym, abs(sh_asym) < 0.05),
+                    ),
                     # sign-debug: lat should flip +/- as you tilt; up must stay > 0.
-                    (f"  lat={dbg_nose_dx:+5.0f} up={dbg_up:+5.0f}",
-                     _GREY if dbg_up > 0 else (90, 90, 220)),
+                    (
+                        f"  lat={dbg_nose_dx:+5.0f} up={dbg_up:+5.0f}",
+                        _GREY if dbg_up > 0 else (90, 90, 220),
+                    ),
                 ],
             )
 
-            three_d_panel = _make_panel(CAM_WIDTH, CAM_HEIGHT, "3. 3D rig (MotionBERT-Lite)")
+            three_d_panel = _make_panel(
+                CAM_WIDTH, CAM_HEIGHT, "3. 3D rig (MotionBERT-Lite)"
+            )
             _render_rig_3d(
                 three_d_panel,
                 last_rig_3d,
@@ -488,8 +564,16 @@ def run() -> None:
                 ]
             ):
                 s = float(scores[idx])
-                color = (90, 220, 90) if s >= 0.5 else (90, 200, 220) if s >= 0.3 else (90, 90, 220)
-                _draw_text(cam_panel, f"{name}: {s:.2f}", (12 + i * 120, base_y), color=color)
+                color = (
+                    (90, 220, 90)
+                    if s >= 0.5
+                    else (90, 200, 220)
+                    if s >= 0.3
+                    else (90, 90, 220)
+                )
+                _draw_text(
+                    cam_panel, f"{name}: {s:.2f}", (12 + i * 120, base_y), color=color
+                )
 
             now = time.time()
             frame_times.append(now)
@@ -561,7 +645,10 @@ def run() -> None:
                     62,
                     [
                         (f"lift cost : {prof['lift_ms']:4.1f}ms", _GREY),
-                        (f"lift rate : {lift_fps:2d} fps", _GREEN if lift_fps >= 10 else _AMBER),
+                        (
+                            f"lift rate : {lift_fps:2d} fps",
+                            _GREEN if lift_fps >= 10 else _AMBER,
+                        ),
                         (f"2D infer  : {prof['infer_ms']:4.1f}ms", _GREY),
                         (f"rig lag   : ~{lift_lag_ms:.0f}ms (window centre)", _AMBER),
                     ],

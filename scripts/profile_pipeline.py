@@ -52,23 +52,51 @@ def _md_row(name: str, samples: list[float], call_count: int) -> str:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--frames", type=int, default=600,
-                    help="number of frames to profile (after warmup)")
-    ap.add_argument("--warmup", type=int, default=30,
-                    help="frames to run before starting measurement")
-    ap.add_argument("--lift-every", type=int, default=5,
-                    help="how often to run the 3D lift (matches LIFT_EVERY_N_FRAMES)")
-    ap.add_argument("--pose-stride", type=int, default=1,
-                    help="run pose2d.infer() every Nth iteration (matches A3 throttling). "
-                         "stride=1: every frame (default); stride=2: half-rate (15 Hz at 30 fps cam).")
-    ap.add_argument("--onnx-threads", type=int, default=None,
-                    help="optional override for ONNX intra_op thread count. "
-                         "None = library default (typically num_cpu_cores).")
-    ap.add_argument("--output", type=str, default=None,
-                    help="if set, append a markdown summary to this file")
-    ap.add_argument("--label", type=str, default="baseline",
-                    help="label this run in the markdown output (e.g. 'baseline', "
-                         "'onnx_threads=4')")
+    ap.add_argument(
+        "--frames",
+        type=int,
+        default=600,
+        help="number of frames to profile (after warmup)",
+    )
+    ap.add_argument(
+        "--warmup",
+        type=int,
+        default=30,
+        help="frames to run before starting measurement",
+    )
+    ap.add_argument(
+        "--lift-every",
+        type=int,
+        default=5,
+        help="how often to run the 3D lift (matches LIFT_EVERY_N_FRAMES)",
+    )
+    ap.add_argument(
+        "--pose-stride",
+        type=int,
+        default=1,
+        help="run pose2d.infer() every Nth iteration (matches A3 throttling). "
+        "stride=1: every frame (default); stride=2: half-rate (15 Hz at 30 fps cam).",
+    )
+    ap.add_argument(
+        "--onnx-threads",
+        type=int,
+        default=None,
+        help="optional override for ONNX intra_op thread count. "
+        "None = library default (typically num_cpu_cores).",
+    )
+    ap.add_argument(
+        "--output",
+        type=str,
+        default=None,
+        help="if set, append a markdown summary to this file",
+    )
+    ap.add_argument(
+        "--label",
+        type=str,
+        default="baseline",
+        help="label this run in the markdown output (e.g. 'baseline', "
+        "'onnx_threads=4')",
+    )
     args = ap.parse_args()
 
     assert FIXTURE.exists(), f"missing fixture: {FIXTURE}"
@@ -80,6 +108,7 @@ def main() -> None:
     # Optional: thread tuning hook for A2. Not used in baseline run.
     if args.onnx_threads is not None:
         import onnxruntime as ort
+
         sess_opts = ort.SessionOptions()
         sess_opts.intra_op_num_threads = args.onnx_threads
         sess_opts.inter_op_num_threads = 1
@@ -94,13 +123,17 @@ def main() -> None:
 
         ort.InferenceSession.__init__ = _patched_session_init  # type: ignore[method-assign]
 
-    print(f"[profile] platform: {platform.platform()}  python: {platform.python_version()}")
+    print(
+        f"[profile] platform: {platform.platform()}  python: {platform.python_version()}"
+    )
     print(f"[profile] fixture: {FIXTURE.relative_to(PROJECT_ROOT)}")
-    print(f"[profile] frames: {args.frames}  warmup: {args.warmup}  lift_every: {args.lift_every}")
+    print(
+        f"[profile] frames: {args.frames}  warmup: {args.warmup}  lift_every: {args.lift_every}"
+    )
     if args.onnx_threads is not None:
         print(f"[profile] ONNX intra_op_num_threads override: {args.onnx_threads}")
 
-    print(f"[profile] loading models...")
+    print("[profile] loading models...")
     t0 = time.time()
     pose2d = Pose2D(device="cpu", mode="lightweight")
     pose3d = Pose3D()
@@ -175,13 +208,12 @@ def main() -> None:
         s = time.perf_counter()
         # Mimic the 3-panel canvas composition used in test_2D_3D.py.
         cam_panel = np.full((H + 80, W, 3), 22, dtype=np.uint8)
-        cam_panel[40:40 + H, :W] = img
+        cam_panel[40 : 40 + H, :W] = img
         two_d_panel = cam_panel.copy()
         cv2.line(two_d_panel, (100, 100), (200, 200), (255, 200, 0), 2)
         three_d_panel = np.full((H + 80, W, 3), 22, dtype=np.uint8)
         if last_rig_3d is not None:
-            cv2.rectangle(three_d_panel, (20, 40), (W - 20, H + 20),
-                          (60, 60, 60), 1)
+            cv2.rectangle(three_d_panel, (20, 40), (W - 20, H + 20), (60, 60, 60), 1)
         _ = np.hstack([cam_panel, two_d_panel, three_d_panel])
         samples["canvas_compose (3-panel 1920x560)"].append(time.perf_counter() - s)
         counts["canvas_compose (3-panel 1920x560)"] += 1
@@ -209,8 +241,12 @@ def main() -> None:
             p95_ms = sorted_v[int(0.95 * (len(sorted_v) - 1))] * 1000
             print(f"{name:<35s} {n:>6d}   {mean_ms:7.2f}   {p95_ms:7.2f}")
     print()
-    print(f"wall-clock total: {wall_s:.2f} s   throughput: {args.frames / wall_s:.1f} fps")
-    print(f"process CPU%:    {cpu_pct:7.1f}%   (of one core; {cpu_pct / n_cores:.1f}% of {n_cores}-core total)")
+    print(
+        f"wall-clock total: {wall_s:.2f} s   throughput: {args.frames / wall_s:.1f} fps"
+    )
+    print(
+        f"process CPU%:    {cpu_pct:7.1f}%   (of one core; {cpu_pct / n_cores:.1f}% of {n_cores}-core total)"
+    )
 
     if args.output:
         out_path = Path(args.output)
@@ -221,17 +257,25 @@ def main() -> None:
         with out_path.open("a", encoding="utf-8") as f:
             if header_needed:
                 f.write("# Pipeline performance baseline\n\n")
-                f.write(f"Platform: `{platform.platform()}` · Python {platform.python_version()}\n\n")
+                f.write(
+                    f"Platform: `{platform.platform()}` · Python {platform.python_version()}\n\n"
+                )
             f.write(f"## {args.label}\n\n")
             f.write(f"- Frames measured: **{args.frames}** (warmup {args.warmup})\n")
             f.write(f"- 3D lift cadence: every **{args.lift_every}** frames\n")
             if args.onnx_threads is not None:
                 f.write(f"- ONNX intra_op_num_threads: **{args.onnx_threads}**\n")
             if args.pose_stride > 1:
-                f.write(f"- Pose inference stride: every **{args.pose_stride}** frames\n")
-            f.write(f"- Wall-clock total: **{wall_s:.2f} s** · throughput **{args.frames / wall_s:.1f} fps**\n")
-            f.write(f"- Process CPU%: **{cpu_pct:.1f}%** of one core "
-                    f"(≈ **{cpu_pct / n_cores:.1f}%** of {n_cores}-core total)\n\n")
+                f.write(
+                    f"- Pose inference stride: every **{args.pose_stride}** frames\n"
+                )
+            f.write(
+                f"- Wall-clock total: **{wall_s:.2f} s** · throughput **{args.frames / wall_s:.1f} fps**\n"
+            )
+            f.write(
+                f"- Process CPU%: **{cpu_pct:.1f}%** of one core "
+                f"(≈ **{cpu_pct / n_cores:.1f}%** of {n_cores}-core total)\n\n"
+            )
             f.write("| stage | calls | mean ms | p95 ms |\n")
             f.write("|---|---:|---:|---:|\n")
             for name, vals in samples.items():

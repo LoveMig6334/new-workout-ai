@@ -35,7 +35,9 @@ class TargetPose:
     joints: tuple[JointTarget, ...]
     hold_seconds: float = 20.0
     side: str | None = None  # "left" / "right" / None for symmetric
-    valid_views: tuple[CameraView, ...] = field(default_factory=lambda: _DEFAULT_VALID_VIEWS)
+    valid_views: tuple[CameraView, ...] = field(
+        default_factory=lambda: _DEFAULT_VALID_VIEWS
+    )
     """Which camera framings the FSM is allowed to score in. Defaults to all
     three views for backward compatibility; exercises that depend on a
     specific framing (e.g. CVA needs side view) should narrow this. The FSM

@@ -287,7 +287,9 @@ def _calibration_phase(
         return baseline
     except CalibrationError as e:
         print(f"[calibration] FAILED: {e}")
-        print("[calibration] continuing in absolute-angle mode (no baseline subtraction)")
+        print(
+            "[calibration] continuing in absolute-angle mode (no baseline subtraction)"
+        )
         return BaselinePose(
             shoulder_width_px=0.0,
             head_lateral_tilt_deg=0.0,
