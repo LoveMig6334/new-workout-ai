@@ -68,12 +68,18 @@ CAM_WIDTH = 640
 CAM_HEIGHT = 480
 PANEL_PAD = 80  # extra vertical room below each panel for readouts
 
-# Throttle the heavy stages so the diagnostic isn't pegging CPU. Camera capture
-# stays at native FPS; 2D inference runs at _POSE_INFERENCE_HZ; 3D lift runs at
-# _LIFT_HZ. On frames where inference is skipped we reuse the previous (kps,
-# scores) so the panels still render — only the ORT cost is skipped.
-_POSE_INFERENCE_HZ = 15
-_LIFT_HZ = 6
+# Diagnostic runs both heavy stages at the camera's native 30 fps. Profiled
+# 2026-05-23 (balanced + CoreML): 2D infer + 3D lift combined = ~22.8 ms median
+# (p95 24.8 ms), which fits the 33.3 ms/frame budget with ~10 ms headroom. Running
+# at 30 Hz (vs the earlier 15 Hz) does two things: the rig redraws as smoothly as
+# the camera, AND the 27-frame window fills twice as fast, halving the window-centre
+# lag (867 ms → 433 ms). The 15 Hz figure made sense in the lightweight+CPU era
+# (halved CPU load); with the conv work now on the Neural Engine it's cheap enough
+# to run full-rate here. NOTE: `app.run_session` deliberately stays at 15 Hz —
+# held-pose scoring doesn't need 30 Hz and the lower rate saves power/thermals over
+# a multi-minute coaching session. This higher rate is a diagnostic-only choice.
+_POSE_INFERENCE_HZ = 30
+_LIFT_HZ = 30
 _INFERENCE_INTERVAL_S = 1.0 / _POSE_INFERENCE_HZ
 _LIFT_INTERVAL_S = 1.0 / _LIFT_HZ
 
@@ -221,6 +227,7 @@ def _render_rig_3d(
     box: tuple[int, int, int, int],
     joint_conf: np.ndarray,
     threshold: float = JOINT_VISIBILITY_THRESHOLD,
+    mirror: bool = False,
 ) -> None:
     """Render an H36M-17 rig inside the bounding box (x0, y0, w, h).
 
@@ -265,6 +272,11 @@ def _render_rig_3d(
     centre = (bbox_min + bbox_max) / 2.0
     panel_centre = np.array([x0 + w / 2.0, y0 + h / 2.0], dtype=np.float32)
     screen = (pts - centre) * scale + panel_centre
+
+    # Mirror horizontally within the box so the rig's left/right matches the
+    # mirrored camera panel (display-only; rig coords themselves are untouched).
+    if mirror:
+        screen[:, 0] = (2 * x0 + w) - screen[:, 0]
 
     rect = (x0, y0, w, h)
 
@@ -333,6 +345,14 @@ def run() -> None:
     last_pose_ts = 0.0
     last_lift_ts = 0.0
 
+    # Live profiling state. `prof` holds the most recent per-stage ms; `lift_stamps`
+    # is a rolling window of lift timestamps used to compute the actual lift fps.
+    prof = {"infer_ms": 0.0, "lift_ms": 0.0}
+    lift_stamps: list[float] = []
+    # MotionBERT returns the centre of its 27-frame window, so the rig trails
+    # live by ~half a window at the push rate. Surfaced in the readout.
+    lift_lag_ms = (lifter.window_size // 2) / _POSE_INFERENCE_HZ * 1000 if have_3d else 0.0
+
     # Smooth FPS over a small window.
     frame_times: list[float] = []
 
@@ -350,7 +370,9 @@ def run() -> None:
             # on skipped frames so the panels still render at native FPS without
             # paying ORT cost.
             if last_kps is None or (t0 - last_pose_ts) >= _INFERENCE_INTERVAL_S:
+                _ti = time.perf_counter()
                 last_kps, last_scores = pose2d.infer(frame_bgr)
+                prof["infer_ms"] = (time.perf_counter() - _ti) * 1000
                 last_pose_ts = t0
                 if have_3d and coco_to_h36m is not None and buf is not None:
                     buf.push(coco_to_h36m(last_kps, last_scores))
@@ -366,21 +388,45 @@ def run() -> None:
             sh_asym = shoulder_elevation_asymmetry_2d(kps, scores)
             view = classify_view(kps, scores)
 
+            # --- sign-debug for head_lateral_tilt_2d ---
+            # Surfaces the two quantities that determine the SIGN: the nose's
+            # lateral offset from mid-shoulder (flips with tilt direction) and
+            # the up_component (must stay > 0 — if it goes <= 0 the atan2 angle
+            # wraps past 90° and the sign stops behaving monotonically).
+            _mid = (kps[L_SHOULDER] + kps[R_SHOULDER]) / 2.0
+            _sh_dx = float(kps[R_SHOULDER, 0] - kps[L_SHOULDER, 0])
+            dbg_nose_dx = float(kps[NOSE, 0] - _mid[0]) * (1.0 if _sh_dx > 0 else -1.0)
+            dbg_up = -float(kps[NOSE, 1] - _mid[1])  # nose height above shoulders
+
             tilt_3d = float("nan")
             joint_conf = _h36m_joint_confidences(scores)
             if have_3d and buf is not None and lifter is not None:
-                # 3D lift gated on wall-clock so it stays ≥ _LIFT_HZ.
+                # 3D lift gated on wall-clock so it stays ≈ _LIFT_HZ.
                 if buf.ready() and (t0 - last_lift_ts) >= _LIFT_INTERVAL_S:
+                    _tl = time.perf_counter()
                     last_rig_3d = buf.lift(
                         frame_h=frame_bgr.shape[0], frame_w=frame_bgr.shape[1]
                     )
+                    prof["lift_ms"] = (time.perf_counter() - _tl) * 1000
+                    lift_stamps.append(time.time())
                     last_lift_ts = t0
                 if last_rig_3d is not None:
                     tilt_3d = head_lateral_tilt_3d(last_rig_3d)
 
+            # ----- display mirroring (selfie view) -----
+            # Inference + all measurements above ran on the un-mirrored frame, so
+            # they are unchanged. Here we mirror only what's DRAWN, so on-screen
+            # motion matches a mirror (intuitive). The drawing keypoints get their
+            # x flipped to line up with the flipped image; `kps`/`scores` used for
+            # measurement are untouched.
+            W = frame_bgr.shape[1]
+            disp_frame = cv2.flip(frame_bgr, 1)
+            kps_disp = kps.copy()
+            kps_disp[:, 0] = (W - 1) - kps[:, 0]
+
             # ----- compose panels -----
-            cam_panel = _make_panel(CAM_WIDTH, CAM_HEIGHT, "1. Camera (raw)")
-            cam_panel[30 : 30 + CAM_HEIGHT, :CAM_WIDTH] = frame_bgr
+            cam_panel = _make_panel(CAM_WIDTH, CAM_HEIGHT, "1. Camera (mirror)")
+            cam_panel[30 : 30 + CAM_HEIGHT, :CAM_WIDTH] = disp_frame
             # Camera-view classifier (B3): green when the framing is valid for the
             # active exercise, amber otherwise — mirrors the app's view gate.
             view_ok = view in exercise.target.valid_views
@@ -393,9 +439,9 @@ def run() -> None:
             )
 
             two_d_panel = _make_panel(CAM_WIDTH, CAM_HEIGHT, "2. 2D pose + metrics")
-            overlay = frame_bgr.copy()
-            _draw_skeleton_2d(overlay, kps, scores)
-            _draw_head_tilt_2d_overlay(overlay, kps, scores)
+            overlay = disp_frame.copy()
+            _draw_skeleton_2d(overlay, kps_disp, scores)
+            _draw_head_tilt_2d_overlay(overlay, kps_disp, scores)
             two_d_panel[30 : 30 + CAM_HEIGHT, :CAM_WIDTH] = overlay
             # B2 cookbook metrics, colored by their published healthy bands.
             _draw_metric_block(
@@ -413,6 +459,9 @@ def run() -> None:
                      _health_color(neck_flex, abs(neck_flex) < 25.0)),
                     (f"sh asym   : {sh_asym:+5.2f}" if not np.isnan(sh_asym) else "sh asym   :   --",
                      _health_color(sh_asym, abs(sh_asym) < 0.05)),
+                    # sign-debug: lat should flip +/- as you tilt; up must stay > 0.
+                    (f"  lat={dbg_nose_dx:+5.0f} up={dbg_up:+5.0f}",
+                     _GREY if dbg_up > 0 else (90, 90, 220)),
                 ],
             )
 
@@ -422,6 +471,7 @@ def run() -> None:
                 last_rig_3d,
                 box=(20, 40, CAM_WIDTH - 40, CAM_HEIGHT - 20),
                 joint_conf=joint_conf,
+                mirror=True,  # match the mirrored camera + 2D panels
             )
 
             # ----- readouts -----
@@ -498,6 +548,24 @@ def run() -> None:
                     (12, 30 + CAM_HEIGHT + 50),
                     color=(170, 170, 170),
                     scale=0.45,
+                )
+                # Live profiling: actual lift rate + cost + the temporal lag the
+                # window-centre output imposes. Overlaid in the rig area so the
+                # "why is 3D laggy" question is answerable on-screen.
+                now = time.time()
+                lift_stamps[:] = [s for s in lift_stamps if now - s < 1.0]
+                lift_fps = len(lift_stamps)
+                _draw_metric_block(
+                    three_d_panel,
+                    12,
+                    62,
+                    [
+                        (f"lift cost : {prof['lift_ms']:4.1f}ms", _GREY),
+                        (f"lift rate : {lift_fps:2d} fps", _GREEN if lift_fps >= 10 else _AMBER),
+                        (f"2D infer  : {prof['infer_ms']:4.1f}ms", _GREY),
+                        (f"rig lag   : ~{lift_lag_ms:.0f}ms (window centre)", _AMBER),
+                    ],
+                    box_w=240,
                 )
 
             canvas = np.hstack([cam_panel, two_d_panel, three_d_panel])
