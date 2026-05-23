@@ -11,9 +11,21 @@ from __future__ import annotations
 import time
 
 import cv2
+import numpy as np
 
 import screens
-from analysis.angles import L_HIP, L_SHOULDER, NOSE, R_HIP, R_SHOULDER
+from analysis.angles import (
+    L_HIP,
+    L_SHOULDER,
+    NOSE,
+    R_HIP,
+    R_SHOULDER,
+    craniovertebral_angle_2d,
+    forward_head_offset_normalized_2d,
+    head_lateral_tilt_2d,
+    neck_flexion_2d,
+    shoulder_elevation_asymmetry_2d,
+)
 from analysis.camera_view import classify_view
 from analysis.rules_hold import score_frame, score_hold
 from analysis.types import HoldAnalysis, HoldState, LiveSnapshot, PoseFrame, RuleViolation
@@ -65,9 +77,31 @@ def _pose_ready(scores, view) -> bool:
     )
 
 
+# 3D lift cadence for the debug rig (>= 5 Hz per the README acceptance criteria);
+# visualization-only, so it runs slower than the every-frame 2D pose inference.
+_LIFT_INTERVAL_S = 1.0 / 6.0
+
+
+def _try_load_pose3d():
+    """Load the MotionBERT lifter for the debug rig. Returns
+    (lifter, Pose3DBuffer_class, coco17_to_h36m17_fn) or (None, None, None) if the
+    weights/vendor code are missing — the demo runs fine without the 3D panel."""
+    try:
+        from pose3d import Pose3D, Pose3DBuffer, coco17_to_h36m17
+
+        lifter = Pose3D()
+        return lifter, Pose3DBuffer, coco17_to_h36m17
+    except Exception as e:  # pragma: no cover - environment-dependent
+        print(f"[app] 3D lifter unavailable ({e}); debug panel will omit the rig")
+        return None, None, None
+
+
 def run():
     cap = WebcamCapture(device=0, width=1280, height=720)
     pose = Pose2D()
+
+    print("Loading 3D lifter (MotionBERT) for the debug rig...")
+    lifter, buffer_cls, coco_to_h36m = _try_load_pose3d()
 
     print("Loading Qwen3.5-4B (this takes ~10 seconds the first time)...")
     llm = ThaiCoachLLM()
@@ -90,7 +124,10 @@ def run():
                 choose_routine()
             except SystemExit:
                 break
-            run_neck_stretch_routine(cap, pose, worker, tts_worker, side_exercises)
+            run_neck_stretch_routine(
+                cap, pose, worker, tts_worker, side_exercises,
+                lifter=lifter, buffer_cls=buffer_cls, coco_to_h36m=coco_to_h36m,
+            )
     finally:
         worker.stop()
         tts_worker.stop()
@@ -119,10 +156,25 @@ def _aggregate(set_analyses: list[HoldAnalysis], exercise_name: str) -> HoldAnal
     )
 
 
-def run_neck_stretch_routine(cap, pose, worker, tts_worker, side_exercises, config=None):
+def run_neck_stretch_routine(cap, pose, worker, tts_worker, side_exercises,
+                             lifter=None, buffer_cls=None, coco_to_h36m=None,
+                             config=None):
     fsm = RoutineFSM(config or RoutineConfig())
     cv2.namedWindow(_WINDOW)
     click = {"start": False}
+
+    # 3D rig state (debug panel). buf3d is a fresh 27-frame window per session;
+    # only created when all three lifter pieces loaded (so coco_to_h36m is set too).
+    buf3d = (
+        buffer_cls(lifter)
+        if (buffer_cls is not None and lifter is not None and coco_to_h36m is not None)
+        else None
+    )
+    last_rig_3d = None
+    last_lift_ts = 0.0
+    frame_times: list[float] = []
+    infer_ms = 0.0
+    lift_ms = 0.0
 
     def _on_mouse(event, x, y, flags, param):
         if event == cv2.EVENT_LBUTTONDOWN and screens.point_in_rect(
@@ -152,9 +204,28 @@ def run_neck_stretch_routine(cap, pose, worker, tts_worker, side_exercises, conf
             return
         now = time.monotonic()
 
+        t_infer = time.perf_counter()
         kps, scores = pose.infer(frame)
+        infer_ms = (time.perf_counter() - t_infer) * 1000.0
         view = classify_view(kps, scores)
         pose_ready = _pose_ready(scores, view)
+
+        # 3D lift for the debug rig: push every frame, lift throttled to ~6 Hz.
+        if buf3d is not None and coco_to_h36m is not None:
+            buf3d.push(coco_to_h36m(kps, scores))
+            if buf3d.ready() and (now - last_lift_ts) >= _LIFT_INTERVAL_S:
+                t_lift = time.perf_counter()
+                try:
+                    last_rig_3d = buf3d.lift(frame.shape[0], frame.shape[1])
+                except Exception as e:  # pragma: no cover - runtime/MPS dependent
+                    print(f"[app] 3D lift error: {e}")
+                lift_ms = (time.perf_counter() - t_lift) * 1000.0
+                last_lift_ts = now
+
+        # FPS over a rolling 1s window.
+        frame_times.append(now)
+        frame_times = [t for t in frame_times if now - t < 1.0]
+        fps = len(frame_times)
 
         side = fsm.current_side
         in_target = False
@@ -266,8 +337,41 @@ def run_neck_stretch_routine(cap, pose, worker, tts_worker, side_exercises, conf
 
         last_frame_ts = now
 
-        # Render the active screen for this phase (pure — no audio side-effects).
-        canvas = _compose(fsm, frame, in_target, view_ok, worker, set_analyses, summary_text)
+        # Render the active screen for this phase (pure — no audio side-effects),
+        # then overlay the 2D skeleton and append the right-hand debug panel.
+        left = _compose(fsm, frame, in_target, view_ok, worker, set_analyses, summary_text)
+        if fsm.phase in (
+            RoutinePhase.POSITIONING,
+            RoutinePhase.COUNTDOWN,
+            RoutinePhase.HOLD,
+            RoutinePhase.TRANSITION,
+        ):
+            screens.draw_skeleton_overlay(left, kps, scores, frame.shape)
+        panel = screens.build_debug_panel(
+            screens.H,
+            last_rig_3d,
+            screens.h36m_joint_confidences(scores),
+            {
+                "tilt": float(head_lateral_tilt_2d(kps, scores)),
+                "cva": float(craniovertebral_angle_2d(kps, scores)),
+                "fwd": float(forward_head_offset_normalized_2d(kps, scores)),
+                "neck_flex": float(neck_flexion_2d(kps, scores)),
+                "sh_asym": float(shoulder_elevation_asymmetry_2d(kps, scores)),
+                "view": view.value,
+                "view_ok": view_ok,
+                "conf": {
+                    "nose": float(scores[NOSE]),
+                    "lsh": float(scores[L_SHOULDER]),
+                    "rsh": float(scores[R_SHOULDER]),
+                    "lhip": float(scores[L_HIP]),
+                    "rhip": float(scores[R_HIP]),
+                },
+                "fps": fps,
+                "infer_ms": infer_ms,
+                "lift_ms": lift_ms,
+            },
+        )
+        canvas = np.hstack([left, panel])
         cv2.imshow(_WINDOW, canvas)
         key = cv2.waitKey(1) & 0xFF
         if key == ord("q") or fsm.phase is RoutinePhase.DONE:
