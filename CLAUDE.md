@@ -6,9 +6,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Real-time webcam-based form coach for macOS Apple Silicon. Streams from the webcam, runs 2D pose → 3D pose → rule-based form analysis, and produces Thai-language coaching feedback from an on-device VLM.
 
-**Currently implemented**: squat (rep-based, FSM = STANDING → DESCENT → BOTTOM → ASCENT, LLM fires on rep completion).
+**Two exercise modes coexist in the codebase:**
 
-**Next, designed but not implemented**: six office-syndrome stretches (neck / shoulder / chest-and-shoulder / front-hand / back-hand / neck-flexion) as timed-hold sessions with a runtime selector. Spec at `docs/superpowers/specs/2026-05-22-office-syndrome-stretches-design.md`. When working on stretches, the pattern is: `HoldFSM` (new, alongside `SquatFSM`) + `rules_hold.py` (generic in-target scorer) + `exercises/` package (one module per exercise, mostly target-angle data). The selector picks the exercise so heavy weights (Qwen, MotionBERT) load once.
+- **Timed-hold stretches (current entry point)** — `app.run()` opens an OpenCV selector at startup, then dispatches to one registered `Exercise`. Built on `HoldFSM` (`analysis/phases.py`) + generic `rules_hold.py` scorer + `exercises/` package (one module per exercise, mostly target-angle data). Currently registered: `NeckStretchLeft` (left-neck lateral tilt, 20s timed hold). Remaining 9 entries (neck-right, shoulders, chest-and-shoulder, front-hand, back-hand, neck-flexion) are content-only additions deferred to a follow-up plan — each is a new module under `src/exercises/` + a registry entry.
+- **Squat coaching (rep-based, preserved)** — original `SquatFSM` (STANDING → DESCENT → BOTTOM → ASCENT) + `analysis/rules_squat.py::score_rep`. LLM fires on rep completion. The code is intact and the tests still cover it, but **`main.py` no longer routes to it** — the squat flow is parked while the stretch slice is in active development. To re-expose squats from the entry point, register a squat-shaped `Exercise` (or add a CLI flag in `app.run`).
+
+The selector loads heavy weights (Qwen, MotionBERT, RTMPose) once and then loops session-by-session; switching exercises doesn't trigger reloads. Spec for the stretches: `docs/superpowers/specs/2026-05-22-office-syndrome-stretches-design.md`.
 
 ## Commands
 
@@ -17,7 +20,7 @@ This project uses `uv` (Python 3.12) — always invoke Python via `uv run`.
 ```bash
 uv sync --all-extras                          # install + dev deps
 uv run python scripts/download_models.py      # one-time, ~6 GB into ./models/
-uv run python main.py                         # run the app (webcam window opens; q to quit, a to toggle attention overlay)
+uv run python main.py                         # opens selector → pick an exercise (number key) → hold session begins; q/Esc cancels selector, q quits a session
 
 uv run pytest                                 # run full test suite
 uv run pytest tests/test_phases.py            # single file
@@ -30,20 +33,32 @@ uv run ruff format                            # format
 
 ## Architecture
 
-Single-process pipeline driven by `src/app.py::run()`. The main loop reads webcam frames, runs them through pose inference and a finite-state machine, scores each completed rep, and ships the score to a background LLM thread for narration. The display is composed of the camera feed plus a right-hand panel that shows the 3D rig and Thai coaching text.
+Single-process pipeline driven by `src/app.py::run()`. Top-level `run()` loads pose + LLM weights once, then loops: `choose_exercise()` (selector) → `run_session(exercise)` (one hold) → repeat. `run_session` reads webcam frames, runs them through pose inference and the per-exercise hold FSM, scores in-flight + on completion, and ships scores to a background LLM thread for Thai narration. The display is the camera feed plus a right-hand panel with the 3D rig, hold-state badge, progress bar, and Thai coaching text.
 
-Data flow per frame:
+Data flow per frame (hold mode — current entry point):
 
 ```
 WebcamCapture (bg thread)
-   → Pose2D (YOLOX-tiny + RTMPose-s via rtmlib/ONNX, CPU) kps:(17,2) + scores + optional simcc heatmaps
+   → Pose2D (YOLOX-tiny + RTMPose-s via rtmlib/ONNX, CPU) kps:(17,2) + scores
        → coco17_to_h36m17 → Pose3DBuffer (27-frame window)
            → Pose3D (MotionBERT-Lite, PyTorch on MPS)      kps_3d:(17,3) — lifted every 5 frames
+   → exercise.measure(PoseFrame)                           {joint_name: degrees}
+       → rules_hold.score_frame(target, measured)          (in_target: bool, violations)
+           → HoldFSM.update(in_target, ts)                 IDLE → ENTERING → HOLDING → COMPLETE (with DRIFTED branch)
+   → live (throttled ≥ 2.5s): LLMWorker.submit(LiveSnapshot, exercise=...)
+   → on COMPLETE: rules_hold.score_hold(...) → LLMWorker.submit(HoldAnalysis, exercise=...)
+                  → ThaiCoachLLM.generate(payload, exercise=...) — dispatches on payload type
+   → Renderer.compose(..., hold_state=state.value, hold_progress=...) → cv2.imshow
+```
+
+Data flow for the parked squat mode (code still intact, no entry-point wiring):
+
+```
+... 2D + 3D pose stages identical ...
    → SquatFSM.update(kps, ts)                              STANDING → DESCENT → BOTTOM → ASCENT → STANDING
-       → on rep complete: score_rep(bottom_frame) → RepAnalysis
-           → LLMWorker.submit (bg thread, drop-stale)
-               → ThaiCoachLLM (Qwen3.5-4B mxfp4 via mlx-vlm)
-   → Renderer.compose(...) → cv2.imshow
+       → on rep complete: rules_squat.score_rep(bottom_frame) → RepAnalysis
+           → LLMWorker.submit(RepAnalysis)
+               → ThaiCoachLLM.generate(RepAnalysis) — same dispatch, squat branch
 ```
 
 ### Coordinate systems & keypoint layouts
@@ -52,17 +67,32 @@ WebcamCapture (bg thread)
 - **3D keypoints**: Human3.6M-17 layout. `pose3d.coco17_to_h36m17` synthesizes pelvis, spine, and thorax from COCO joints (indices marked `-1`, `-2`, `-3` in `COCO_TO_H36M`). Normalization in `_normalize_2d` divides both x and y by frame **width** (not height) — this matches MotionBERT's expected input convention; do not "fix" it.
 - **Heatmaps for attention overlay**: reconstructed from RTMPose's simcc outputs via outer product (see `pose2d.infer_with_heatmaps`). This is a monkey-patch of `rtmlib`'s pose estimator; if `rtmlib` API shifts, the patch silently degrades and `heatmaps` becomes `None`.
 
-### Rep detection and scoring
+### Phase detection and scoring
 
-`analysis/phases.py::SquatFSM` is the single source of truth for "what counts as a rep." Thresholds (`STAND_THRESHOLD=160°`, `BOTTOM_THRESHOLD=100°`) operate on the average of left/right knee angles. A rep is committed only on the ASCENT→STANDING transition, which fires the `on_rep_complete(meta)` callback with `descent_ms` / `ascent_ms`.
+Two FSMs live in `analysis/phases.py`. They share no state and aren't polymorphic — pick the right one for the exercise shape.
+
+**`HoldFSM` (timed-hold stretches, current entry point).** Takes a single `bool in_target` per frame (computed upstream by `rules_hold.score_frame`) and tracks the lifecycle `IDLE → ENTERING → HOLDING → COMPLETE`, with a `DRIFTED` branch off `HOLDING`. Two parameters with defaults: `stability_window_s=0.5` (gate to filter accidental fly-throughs), `drift_grace_s=0.3` (forgive single-frame jitter). Pause-on-drift semantics — `in_target_ms` advances only while `HOLDING`. Drift past grace transitions back to `ENTERING` (preserving accumulated `in_target_ms` per spec §5.2) and increments `drift_count`, which feeds the stability score. Fires `on_hold_complete(meta)` with `in_target_ms` / `drift_count` / `completed_ts`.
+
+`analysis/rules_hold.py` is the generic, exercise-agnostic scorer:
+- `score_frame(target, measured) -> (in_target, violations)`: per-frame predicate driving the FSM. NaN or missing measurement → out-of-target with severity 1.0. Deviation past tolerance ramps severity from 0 at the edge to 1.0 at 2× tolerance.
+- `score_hold(...) -> HoldAnalysis`: final 100-pt rubric — duration 50 (clamped `in_target_ms / target_ms`), precision 30 (driven by worst per-joint severity), stability 20 (smooth decay on `drift_count`).
+
+Per-exercise data lives under `src/exercises/`. Each module declares `name`, `display_th`, `target: TargetPose` (joint angle ranges + tolerances + Thai hints), `prompt: PromptTemplate` (Thai live + summary templates), and a `measure(frame) -> dict[str, float]` method. Add a new exercise: drop a new module in, register it in `exercises/__init__.py::EXERCISES`.
+
+**`SquatFSM` (preserved squat mode, not wired to entry point).** Thresholds `STAND_THRESHOLD=160°` and `BOTTOM_THRESHOLD=100°` on the average of left/right knee angles. A rep commits on `ASCENT → STANDING`, firing `on_rep_complete(meta)` with `descent_ms` / `ascent_ms`.
 
 `analysis/rules_squat.py::score_rep` is a pure function from a single `PoseFrame` (the bottom frame) + tempo to a `RepAnalysis`. Component budget totals 100: depth 30 / valgus 25 / torso 20 / symmetry 15 / tempo 10. Each violation also produces a Thai-language hint (`detail_th`) consumed by the LLM prompt — keep wording natural Thai when adding rules.
 
 ### LLM feedback
 
-`feedback/llm.py::ThaiCoachLLM` wraps Qwen3.5-4B (mxfp4) via `mlx-vlm`. First `generate()` call is slow (compilation) — `app.run()` calls `warmup()` before entering the loop; preserve that order.
+`feedback/llm.py::ThaiCoachLLM` wraps Qwen3.5-4B (mxfp4) via `mlx-vlm`. First `generate()` call is slow (compilation) — `app.run()` calls `warmup()` before entering the loop; preserve that order. `generate(payload, ..., exercise=None)` dispatches on payload type:
+- `RepAnalysis` → squat system prompt + `build_user_prompt` (no `exercise` needed).
+- `HoldAnalysis` → hold system prompt + `build_hold_summary_prompt(payload, exercise)` — `exercise=` is **required**, else `ValueError`.
+- `LiveSnapshot` → hold system prompt + `build_live_prompt(payload, exercise)` — `exercise=` is **required**, else `ValueError`.
 
-`feedback/worker.py::LLMWorker` runs in a background thread with **drop-stale** semantics: `submit(rep)` replaces any pending rep that hasn't been processed yet. There is no queue. If reps come faster than the LLM, older ones are silently dropped — by design, since stale feedback is worse than no feedback.
+`feedback/worker.py::LLMWorker` runs in a background thread with **drop-stale** semantics: `submit(payload, **kwargs)` replaces any pending submission that hasn't been processed yet. There is no queue. Kwargs (including `exercise=`) are stored alongside the payload and forwarded to `generate()`. If submissions arrive faster than the LLM, older ones are silently dropped — by design, since stale feedback is worse than no feedback.
+
+Hold-mode live cadence: `app.run_session` throttles submissions to ≥ 2.5 s apart (Qwen 4B mxfp4 on MPS produces a short Thai phrase in ~1–2 s, so faster submission is wasted work). Expect roughly one fresh nudge every 3–4 s during a 20 s hold.
 
 ### Model artifacts
 
@@ -87,8 +117,10 @@ The main loop is the only consumer of OpenCV's GUI (`cv2.imshow` / `cv2.waitKey`
 ## Testing notes
 
 - `tests/conftest.py` adds `src/` to `sys.path` (pytest config also does this — both are intentional, removing one breaks `python -m pytest` invocations).
-- The `*_smoke.py` tests actually load the heavy models (RTMPose, MotionBERT, Qwen) and will be slow/fail without `scripts/download_models.py` having run. Pure-logic tests (`test_angles`, `test_phases`, `test_rules_squat`, `test_attention`, `test_types`) are fast and have no model dependency — prefer these when iterating on `analysis/`.
-- `test_llm_smoke.py` loads ~4 GB of weights; only run when actually touching `feedback/`.
+- The `*_smoke.py` tests actually load the heavy models (RTMPose, MotionBERT, Qwen) and will be slow/fail without `scripts/download_models.py` having run. They use `pytest.mark.skipif` against `tests/fixtures/...` and `models/...` paths anchored from `__file__`, so they skip gracefully when assets are missing.
+- Pure-logic tests are fast and have no model dependency — prefer these when iterating on `analysis/` or `exercises/`. The pure-logic set: `test_angles`, `test_angles_3d`, `test_phases`, `test_hold_fsm`, `test_rules_squat`, `test_rules_hold`, `test_attention`, `test_types`, `test_exercises_base`, `test_exercises_registry`, `test_neck_stretch`, `test_prompt_th`, `test_render`, `test_worker`.
+- `test_llm_smoke.py` loads ~4 GB of weights; only run when actually touching `feedback/`. It contains both squat (`RepAnalysis`) and hold (`HoldAnalysis`) generation checks.
+- `test_exercise_pipeline_smoke.py` runs the full 2D → 3D → measure → score_frame glue for `NeckStretchLeft` against a fixture image — gated on RTMPose weights + the fixture being present.
 
 ## Development workflow
 
@@ -140,4 +172,4 @@ Implications when making changes today:
 - Design specs:
   - Original squat coach: `docs/superpowers/specs/2026-05-18-pose-form-coach-design.md` (impl plan: `docs/superpowers/plans/2026-05-18-pose-form-coach.md`).
   - 3D scoring upgrade: `docs/superpowers/specs/2026-05-19-3d-scoring-design.md`.
-  - Office syndrome stretches: `docs/superpowers/specs/2026-05-22-office-syndrome-stretches-design.md`.
+  - Office syndrome stretches: `docs/superpowers/specs/2026-05-22-office-syndrome-stretches-design.md` (impl plan: `docs/superpowers/plans/2026-05-22-office-syndrome-stretches.md`).
