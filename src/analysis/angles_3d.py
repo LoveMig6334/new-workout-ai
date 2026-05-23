@@ -9,6 +9,7 @@ L_HIP = 4
 L_KNEE = 5
 L_ANKLE = 6
 THORAX = 8
+HEAD = 10
 
 
 def _norm(v: np.ndarray) -> np.ndarray:
@@ -114,3 +115,22 @@ def valgus_offset_3d(kps_3d: np.ndarray) -> tuple[float, float]:
     right = _one_side(R_HIP, R_KNEE, R_ANKLE, medial_sign=-1.0)
     left = _one_side(L_HIP, L_KNEE, L_ANKLE, medial_sign=+1.0)
     return left, right
+
+
+def head_lateral_tilt_3d(kps_3d: np.ndarray) -> float:
+    """Signed head-tilt angle (degrees) in the body's frontal plane.
+
+    Positive = head tilted toward body_lateral (+) direction (L_hip → R_hip);
+    negative = tilted the opposite way. Use the sign convention defined by
+    body_frame_axes(). Returns NaN if the body frame is degenerate.
+    """
+    up, lateral, _ = body_frame_axes(kps_3d)
+    # Reject degenerate frames (zero vectors come back from _norm unchanged).
+    if float(np.linalg.norm(up)) < 1e-9 or float(np.linalg.norm(lateral)) < 1e-9:
+        return float("nan")
+    head_vec = kps_3d[HEAD] - kps_3d[THORAX]
+    if float(np.linalg.norm(head_vec)) < 1e-9:
+        return float("nan")
+    lat_component = float(np.dot(head_vec, lateral))
+    up_component = float(np.dot(head_vec, up))  # up is pelvis→thorax; head is further along up
+    return float(np.degrees(np.arctan2(lat_component, up_component)))

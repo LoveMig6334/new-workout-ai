@@ -1,15 +1,18 @@
 import threading
 from typing import Optional
-from analysis.types import RepAnalysis
 
 
 class LLMWorker:
-    """Background thread that processes the most recent RepAnalysis at a time, dropping older ones."""
+    """Background thread that processes the most recent payload at a time, dropping older ones.
+
+    Accepts any payload type (RepAnalysis, HoldAnalysis, LiveSnapshot, etc.) via submit().
+    Extra keyword arguments passed to submit() are forwarded to llm.generate().
+    """
 
     def __init__(self, llm):
         self._llm = llm
         self._lock = threading.Lock()
-        self._pending: Optional[RepAnalysis] = None
+        self._pending: Optional[tuple] = None
         self._latest_text: Optional[str] = None
         self._cv = threading.Condition(self._lock)
         self._thread: Optional[threading.Thread] = None
@@ -20,9 +23,9 @@ class LLMWorker:
         self._thread = threading.Thread(target=self._loop, daemon=True)
         self._thread.start()
 
-    def submit(self, rep: RepAnalysis):
+    def submit(self, payload, **kwargs):
         with self._cv:
-            self._pending = rep  # newer overwrites older
+            self._pending = (payload, kwargs)  # newer overwrites older
             self._cv.notify()
 
     def latest(self) -> Optional[str]:
@@ -36,10 +39,13 @@ class LLMWorker:
                     self._cv.wait(timeout=0.1)
                 if not self._running:
                     return
-                rep = self._pending
+                pending = self._pending
                 self._pending = None
+            if pending is None:
+                continue  # spurious wake; loop again
+            payload, kwargs = pending
             try:
-                text = self._llm.generate(rep)
+                text = self._llm.generate(payload, **kwargs)
             except Exception as e:
                 text = f"[LLM error: {e}]"
             with self._lock:

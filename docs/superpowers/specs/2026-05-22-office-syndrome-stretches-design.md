@@ -295,6 +295,8 @@ Minimal additions to the right panel:
 ### 11.1 Timer semantics — DECIDED: pause-on-drift
 Alternative considered: wall-clock-with-penalty (timer always runs; drift just lowers the score). Going with pause-on-drift as the more honest "hold" semantic. Revisit if user testing shows people get stuck retrying drifty holds.
 
+Drift past grace transitions DRIFTED → ENTERING (not IDLE) and preserves the accumulated `in_target_ms`. The stability penalty comes from `drift_count`, not from resetting the timer.
+
 ### 11.2 Live LLM throughput
 ~1 fresh nudge every 3–4s may feel sluggish. Three fallbacks if so:
   (a) shorter throttle, tolerate more drop-stale waste;

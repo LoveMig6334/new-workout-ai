@@ -3,8 +3,14 @@ from pathlib import Path
 from typing import Optional
 import numpy as np
 
-from feedback.prompt_th import SYSTEM_TH, build_user_prompt
-from analysis.types import RepAnalysis
+from analysis.types import HoldAnalysis, LiveSnapshot, RepAnalysis
+from feedback.prompt_th import (
+    SYSTEM_TH,
+    SYSTEM_TH_HOLD,
+    build_hold_summary_prompt,
+    build_live_prompt,
+    build_user_prompt,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_MODEL_DIR = PROJECT_ROOT / "models" / "qwen3_5_4b_mxfp4"
@@ -25,31 +31,41 @@ class ThaiCoachLLM:
 
     def generate(
         self,
-        rep: RepAnalysis,
+        payload,                         # RepAnalysis | HoldAnalysis | LiveSnapshot
         max_tokens: int = 160,
         frame_bgr: Optional[np.ndarray] = None,
+        exercise=None,                   # required for HoldAnalysis / LiveSnapshot
     ) -> str:
         from mlx_vlm import generate as mlx_generate
         from mlx_vlm.prompt_utils import apply_chat_template
 
-        user = build_user_prompt(rep)
+        if isinstance(payload, RepAnalysis):
+            system = SYSTEM_TH
+            user = build_user_prompt(payload)
+        elif isinstance(payload, HoldAnalysis):
+            if exercise is None:
+                raise ValueError("exercise= required for HoldAnalysis")
+            system = SYSTEM_TH_HOLD
+            user = build_hold_summary_prompt(payload, exercise)
+        elif isinstance(payload, LiveSnapshot):
+            if exercise is None:
+                raise ValueError("exercise= required for LiveSnapshot")
+            system = SYSTEM_TH_HOLD
+            user = build_live_prompt(payload, exercise)
+        else:
+            raise TypeError(f"Unsupported payload type: {type(payload).__name__}")
+
         messages = [
-            {"role": "system", "content": SYSTEM_TH},
+            {"role": "system", "content": system},
             {"role": "user", "content": user},
         ]
         prompt = apply_chat_template(
-            self._processor,
-            self._config,
-            messages,
-            num_images=0,
-            enable_thinking=False,
+            self._processor, self._config, messages,
+            num_images=0, enable_thinking=False,
         )
         result = mlx_generate(
-            self._model,
-            self._processor,
-            prompt=prompt,
-            max_tokens=max_tokens,
-            verbose=False,
+            self._model, self._processor,
+            prompt=prompt, max_tokens=max_tokens, verbose=False,
         )
         text = getattr(result, "text", str(result))
         return _THINK_BLOCK.sub("", text).strip()

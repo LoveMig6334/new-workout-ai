@@ -1,5 +1,5 @@
 import numpy as np
-from analysis.types import PoseFrame, PhaseState, RepAnalysis
+from analysis.types import PoseFrame, PhaseState, RepAnalysis, HoldState, HoldAnalysis, LiveSnapshot, RuleViolation
 
 
 def test_pose_frame_construction():
@@ -53,3 +53,37 @@ def test_rep_analysis_accepts_2d_metric_source():
         metric_source="2d",
     )
     assert rep.metric_source == "2d"
+
+
+def test_hold_state_enum_values():
+    assert HoldState.IDLE.value == "idle"
+    assert HoldState.ENTERING.value == "entering"
+    assert HoldState.HOLDING.value == "holding"
+    assert HoldState.DRIFTED.value == "drifted"
+    assert HoldState.COMPLETE.value == "complete"
+
+
+def test_hold_analysis_dataclass_roundtrip():
+    a = HoldAnalysis(
+        exercise_name="neck_stretch_left",
+        score=87,
+        components={"duration": 50, "precision": 25, "stability": 12},
+        violations=[RuleViolation("head_lateral_tilt", 0.4, "เอียงคอเพิ่ม")],
+        in_target_ms=18_000,
+        drift_count=2,
+    )
+    assert a.score == 87
+    assert a.components["duration"] == 50
+    assert a.violations[0].name == "head_lateral_tilt"
+
+
+def test_live_snapshot_dataclass_roundtrip():
+    s = LiveSnapshot(
+        exercise_name="neck_stretch_left",
+        state=HoldState.HOLDING,
+        progress_ratio=0.6,
+        current_violations=[],
+    )
+    assert s.state is HoldState.HOLDING
+    assert s.progress_ratio == 0.6
+    assert s.current_violations == []

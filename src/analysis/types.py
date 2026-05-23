@@ -42,3 +42,29 @@ class RepAnalysis:
     bottom_frame_keypoints_3d: Optional[np.ndarray] = None
     bottom_frame_image: Optional[np.ndarray] = None  # BGR HxWx3, optional for VLM
     metric_source: str = "3d"  # "3d" (primary) or "2d" (fallback)
+
+
+class HoldState(Enum):
+    IDLE = "idle"
+    ENTERING = "entering"
+    HOLDING = "holding"
+    DRIFTED = "drifted"
+    COMPLETE = "complete"
+
+
+@dataclass
+class HoldAnalysis:
+    exercise_name: str
+    score: int  # 0..100
+    components: dict[str, int]  # duration / precision / stability
+    violations: list[RuleViolation]
+    in_target_ms: int
+    drift_count: int
+
+
+@dataclass
+class LiveSnapshot:
+    exercise_name: str
+    state: HoldState
+    progress_ratio: float  # 0.0 .. 1.0
+    current_violations: list[RuleViolation]

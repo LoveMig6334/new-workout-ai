@@ -1,7 +1,10 @@
+import math
+
 import numpy as np
 
 from analysis.angles_3d import (
     body_frame_axes,
+    head_lateral_tilt_3d,
     knee_flexion_3d,
     torso_lean_3d,
     valgus_offset_3d,
@@ -181,3 +184,51 @@ def test_valgus_offset_3d_invariant_under_body_rotation():
 
     assert abs(right1 - right2) < 0.01
     assert abs(left1 - left2) < 0.01
+
+
+# ---------------------------------------------------------------------------
+# head_lateral_tilt_3d tests
+# ---------------------------------------------------------------------------
+
+
+def _h36m_skeleton_with_head_offset(lat_offset: float, vertical: float = 1.0) -> np.ndarray:
+    """Build a minimal H36M-17 keypoint array with head offset laterally
+    from a vertical thorax-pelvis axis.
+
+    Body frame setup in MotionBERT's normalized coords (image-y down → up = -y):
+      pelvis at origin
+      thorax directly above pelvis (along -y)
+      l_hip / r_hip on the x axis so body_lateral = +x
+      head = thorax + (lat_offset, -vertical, 0)
+    """
+    kps = np.zeros((17, 3), dtype=np.float32)
+    kps[0] = (0.0, 0.0, 0.0)          # PELVIS
+    kps[1] = (0.5, 0.0, 0.0)          # R_HIP  → lateral = R_HIP - L_HIP = +x ✓
+    kps[4] = (-0.5, 0.0, 0.0)         # L_HIP
+    kps[8] = (0.0, -1.0, 0.0)         # THORAX
+    kps[10] = (lat_offset, -1.0 - vertical, 0.0)  # HEAD
+    return kps
+
+
+def test_head_lateral_tilt_zero_when_head_above_thorax():
+    kps = _h36m_skeleton_with_head_offset(lat_offset=0.0)
+    assert abs(head_lateral_tilt_3d(kps)) < 1.0  # within 1°
+
+
+def test_head_lateral_tilt_positive_when_tilted_to_body_lateral_plus():
+    kps = _h36m_skeleton_with_head_offset(lat_offset=0.5)
+    angle = head_lateral_tilt_3d(kps)
+    # Expected magnitude: atan2(0.5, 1.0) ≈ 26.57°
+    assert 24.0 < angle < 30.0
+
+
+def test_head_lateral_tilt_sign_flips_with_lateral_direction():
+    pos = head_lateral_tilt_3d(_h36m_skeleton_with_head_offset(lat_offset=0.5))
+    neg = head_lateral_tilt_3d(_h36m_skeleton_with_head_offset(lat_offset=-0.5))
+    assert pos * neg < 0  # opposite signs
+
+
+def test_head_lateral_tilt_nan_when_thorax_collapsed():
+    kps = _h36m_skeleton_with_head_offset(lat_offset=0.0)
+    kps[8] = kps[0]  # thorax coincides with pelvis → no body_up
+    assert math.isnan(head_lateral_tilt_3d(kps))
