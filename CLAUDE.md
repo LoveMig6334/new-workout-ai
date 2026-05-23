@@ -8,10 +8,10 @@ Real-time webcam-based form coach for macOS Apple Silicon. Streams from the webc
 
 **Two exercise modes coexist in the codebase:**
 
-- **Timed-hold stretches (current entry point)** — `app.run()` opens an OpenCV selector at startup, then dispatches to one registered `Exercise`. Built on `HoldFSM` (`analysis/phases.py`) + generic `rules_hold.py` scorer + `exercises/` package (one module per exercise, mostly target-angle data). Currently registered: `NeckStretchLeft` (left-neck lateral tilt, 20s timed hold). Remaining 9 entries (neck-right, shoulders, chest-and-shoulder, front-hand, back-hand, neck-flexion) are content-only additions deferred to a follow-up plan — each is a new module under `src/exercises/` + a registry entry.
+- **Guided neck-stretch routine (current entry point)** — `app.run()` loads pose + LLM + TTS once, then loops `choose_routine()` → `run_neck_stretch_routine()`. The routine is driven by `RoutineFSM` (`src/routine.py`): SETUP (clickable Start) → POSITIONING (humanoid outline; 3s clean-frame window doubles as calibration) → COUNTDOWN (3·2·1 + spoken side cue) → HOLD (fixed 25s wall-clock; form measured per frame via 2D-direct tilt + `score_frame`) → TRANSITION → repeat for 4 alternating sides (left, right, left, right) → SUMMARY. Per-set scoring still reuses `HoldFSM` (`analysis/phases.py`) + `rules_hold.py` + `NeckStretchLeft`/`NeckStretchRight` exercise data. Audio is spoken Thai via `feedback/tts.py` (`GeminiTTS` + macOS `say` fallback, played by `TTSWorker`). Screens are drawn by `src/screens.py`. The 3D rig is not used in this demo. Design spec: `docs/superpowers/specs/2026-05-23-neck-stretch-realtime-demo-design.md`; plan: `docs/superpowers/plans/2026-05-23-neck-stretch-realtime-demo.md`.
 - **Squat coaching (rep-based, preserved)** — original `SquatFSM` (STANDING → DESCENT → BOTTOM → ASCENT) + `analysis/rules_squat.py::score_rep`. LLM fires on rep completion. The code is intact and the tests still cover it, but **`main.py` no longer routes to it** — the squat flow is parked while the stretch slice is in active development. To re-expose squats from the entry point, register a squat-shaped `Exercise` (or add a CLI flag in `app.run`).
 
-The selector loads heavy weights (Qwen, MotionBERT, RTMPose) once and then loops session-by-session; switching exercises doesn't trigger reloads. Spec for the stretches: `docs/superpowers/specs/2026-05-22-office-syndrome-stretches-design.md`.
+Weights (Qwen, MotionBERT, RTMPose) are loaded once and reused across all sets and routine loops. Spec for the office-syndrome stretch architecture: `docs/superpowers/specs/2026-05-22-office-syndrome-stretches-design.md`.
 
 ## Commands
 
@@ -20,12 +20,12 @@ This project uses `uv` (Python 3.12) — always invoke Python via `uv run`.
 ```bash
 uv sync --all-extras                          # install + dev deps
 uv run python scripts/download_models.py      # one-time, ~6 GB into ./models/
-uv run python main.py                         # opens selector → pick an exercise (number key) → 5s calibration → hold session; q/Esc cancels selector, q quits a session
+uv run python main.py                         # guided neck-stretch routine: Start screen → positioning/calibration → 4×25s alternating holds with spoken Thai cues → summary; q/Esc quits
 
 uv run python src/test_2D_3D.py               # 3-panel diagnostic: camera / 2D pose + metrics / 3D rig — live, with per-stage profiling + 2D cookbook + camera-view label (mirrored display)
 uv run python scripts/profile_pipeline.py     # headless per-stage timing harness (CPU%, ms/stage); flags: --onnx-threads, --pose-stride, --output
 
-uv run pytest                                 # run full test suite (145)
+uv run pytest                                 # run full test suite (169)
 uv run pytest tests/office_syndrome           # single section (pipeline / squat / office_syndrome)
 uv run pytest tests/pipeline/test_angles.py   # single file
 uv run pytest -k "not smoke"                  # skip everything that loads heavy weights
@@ -37,9 +37,20 @@ uv run ruff format                            # format
 
 ## Architecture
 
-Single-process pipeline driven by `src/app.py::run()`. Top-level `run()` loads pose + LLM weights once, then loops: `choose_exercise()` (selector) → `run_session(exercise)` (one hold) → repeat. `run_session` reads webcam frames, runs them through pose inference and the per-exercise hold FSM, scores in-flight + on completion, and ships scores to a background LLM thread for Thai narration. The display is the camera feed plus a right-hand panel with the 3D rig, hold-state badge, progress bar, and Thai coaching text.
+Single-process pipeline driven by `src/app.py::run()`. Top-level `run()` loads pose + LLM + TTS weights once, then loops: `choose_routine()` (launcher) → `run_neck_stretch_routine()` (guided multi-set routine) → repeat.
 
-Data flow per frame (hold mode — current entry point):
+### Neck-stretch demo flow (current entry point)
+
+`app.run()` loads pose + LLM + TTS weights once, then loops `choose_routine()` →
+`run_neck_stretch_routine()`. The routine is driven by the pure `RoutineFSM`
+(`src/routine.py`): SETUP (clickable Start) → POSITIONING (humanoid outline; the
+3s clean-frame window doubles as calibration) → COUNTDOWN (3·2·1 + side cue) →
+HOLD (fixed 25s wall-clock; form measured per frame via the 2D-direct tilt +
+`score_frame`) → TRANSITION → repeat for 4 alternating sides → SUMMARY. Audio is
+spoken Thai via `feedback/tts.py` (`GeminiTTS` + macOS `say` fallback, played by
+`TTSWorker`). Screens are drawn by `src/screens.py`. The 3D rig is not used here.
+
+Data flow per frame (hold mode — used within each set of the routine):
 
 ```
 ── session start: _calibration_phase (5 s) → BaselinePose (user's own neutral pose)
@@ -82,7 +93,7 @@ Data flow for the parked squat mode (code still intact, no entry-point wiring):
 
 Two FSMs live in `analysis/phases.py`. They share no state and aren't polymorphic — pick the right one for the exercise shape.
 
-**`HoldFSM` (timed-hold stretches, current entry point).** Takes a single `bool in_target` per frame (computed upstream by `rules_hold.score_frame`) and tracks the lifecycle `IDLE → ENTERING → HOLDING → COMPLETE`, with a `DRIFTED` branch off `HOLDING`. Two parameters with defaults: `stability_window_s=0.5` (gate to filter accidental fly-throughs), `drift_grace_s=0.3` (forgive single-frame jitter). Pause-on-drift semantics — `in_target_ms` advances only while `HOLDING`. Drift past grace transitions back to `ENTERING` (preserving accumulated `in_target_ms` per spec §5.2) and increments `drift_count`, which feeds the stability score. Fires `on_hold_complete(meta)` with `in_target_ms` / `drift_count` / `completed_ts`.
+**`HoldFSM` (timed-hold stretches, used per-set in the neck-stretch routine).** Takes a single `bool in_target` per frame (computed upstream by `rules_hold.score_frame`) and tracks the lifecycle `IDLE → ENTERING → HOLDING → COMPLETE`, with a `DRIFTED` branch off `HOLDING`. Two parameters with defaults: `stability_window_s=0.5` (gate to filter accidental fly-throughs), `drift_grace_s=0.3` (forgive single-frame jitter). Pause-on-drift semantics — `in_target_ms` advances only while `HOLDING`. Drift past grace transitions back to `ENTERING` (preserving accumulated `in_target_ms` per spec §5.2) and increments `drift_count`, which feeds the stability score. Fires `on_hold_complete(meta)` with `in_target_ms` / `drift_count` / `completed_ts`.
 
 `analysis/rules_hold.py` is the generic, exercise-agnostic scorer:
 - `score_frame(target, measured) -> (in_target, violations)`: per-frame predicate driving the FSM. NaN or missing measurement → out-of-target with severity 1.0. Deviation past tolerance ramps severity from 0 at the edge to 1.0 at 2× tolerance.
@@ -133,7 +144,7 @@ The main loop is the only consumer of OpenCV's GUI (`cv2.imshow` / `cv2.waitKey`
 
 ## Testing notes
 
-- Tests are split into three sections (see `tests/README.md` for the full inventory), **145 total**: `tests/pipeline/` (shared pose pipeline — 82 tests), `tests/squat/` (original rep-based mode — 16 tests), `tests/office_syndrome/` (current launcher mode — 47 tests). Run a single section with `uv run pytest tests/<section>`.
+- Tests are split into sections (see `tests/README.md` for the full inventory), **169 total**: `tests/pipeline/` (shared pose pipeline), `tests/squat/` (original rep-based mode), `tests/office_syndrome/` (stretch exercises + hold scoring), `tests/routine/` (RoutineFSM + neck-stretch routine). Run a single section with `uv run pytest tests/<section>`.
 - `tests/conftest.py` adds `src/` to `sys.path` (pytest config also does this — both are intentional, removing one breaks `python -m pytest` invocations). Note: Pyright/Pylance does NOT honor pytest's `pythonpath`, so it flags `Import "calibration"/"analysis.camera_view"/... could not be resolved` for the `src/` modules — a known false positive; pytest resolves them fine.
 - The `*_smoke.py` tests actually load the heavy models (RTMPose, MotionBERT, Qwen) and will be slow/fail without `scripts/download_models.py` having run. They use `pytest.mark.skipif` against `tests/fixtures/...` and `models/...` paths anchored from `__file__`, so they skip gracefully when assets are missing.
 - Pure-logic tests are fast and have no model dependency — prefer these when iterating on `analysis/` or `exercises/`. The pure-logic set: `test_angles` (incl. the 2D measurement cookbook), `test_angles_3d`, `test_camera_view`, `test_phases`, `test_hold_fsm`, `test_rules_squat`, `test_rules_hold`, `test_attention`, `test_types`, `test_exercises_base`, `test_exercises_registry`, `test_neck_stretch`, `test_calibration`, `test_prompt_th`, `test_render`, `test_worker`.

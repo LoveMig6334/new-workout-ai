@@ -1,6 +1,6 @@
 # Workout AI — Real-Time Form Coach (Thai)
 
-Real-time webcam-based form coach for macOS Apple Silicon. The launcher opens an exercise selector, captures a short per-user calibration, then runs a hold-based session for the chosen exercise. Joint angles are measured **directly from 2D keypoints** (nose / ears / shoulders) — robust to the seated, desk-camera framing where the 3D lift fails (see `CLAUDE.md` → "2D-direct measurement"); the 3D rig on screen is visualization-only. **Currently registered**: `neck_stretch_left` — a 20-second left-neck lateral-tilt hold (vertical slice of the office-syndrome plug-in architecture). **Coming next** (content-only): right-neck, both shoulders, chest-and-shoulder, both hands, neck-flexion — the 2D measurement cookbook for these (CVA, forward-head, neck-flexion, shoulder asymmetry, wrist extension) already ships in `analysis/angles.py`. **Squat coaching code** is preserved in the codebase but is not currently wired to the launcher; see `CLAUDE.md` for how to re-enable it.
+Real-time webcam-based form coach for macOS Apple Silicon. The current entry point is a guided neck-stretch routine: four alternating 25-second holds (left, right, left, right) with live Thai coaching and spoken cues. Joint angles are measured **directly from 2D keypoints** (nose / ears / shoulders) — robust to the seated, desk-camera framing where the 3D lift fails (see `CLAUDE.md` → "2D-direct measurement"); the 3D rig on screen is visualization-only. **Squat coaching code** is preserved in the codebase but is not currently wired to the launcher; see `CLAUDE.md` for how to re-enable it.
 
 ## Setup
 
@@ -15,11 +15,16 @@ uv run python scripts/download_models.py     # ~6 GB, one-time
 uv run python main.py
 ```
 
-Keys:
+Usage:
 
-- **Selector**: number key next to the exercise (currently `1` for `neck_stretch_left`). `q` or Esc cancels.
-- **Calibration**: each session opens with a ~5 s "sit naturally" capture that records your neutral posture; targets are then scored as a delta from your own neutral.
-- **During a hold session**: `q` quits the session. The session also ends automatically after the 20s hold completes (Thai summary shown for ~3s, then back to the selector).
+- **Start screen**: click the Start button (or press Space) to begin the routine.
+- **Positioning**: stand so the camera clearly sees your head, shoulders, and hips. A humanoid outline guides placement. Hold still for 3 seconds — this window also captures your neutral posture for per-user calibration.
+- **Countdown**: a 3·2·1 countdown plays with a spoken Thai side cue (e.g. "เอียงซ้าย").
+- **Hold (25 s)**: tilt your neck to the indicated side and hold. Live Thai coaching plays during the hold. The timer advances only while your form is on-target; drifting pauses it briefly.
+- **Routine**: four sets alternate left → right → left → right. A summary screen shows at the end.
+- **Quit**: press `q` or Esc at any time to exit.
+
+**TTS**: spoken cues use Google AI Studio (`gemini-2.5-flash-preview-tts`). Set `google_ai_studio_api_key` in a `.env` file at the repo root. If the key is absent or the request fails, the app falls back to the offline macOS `say -v Kanya` voice automatically.
 
 Diagnostic / debugging:
 
@@ -47,16 +52,16 @@ Shared pipeline (both modes):
 - [x] 3D rig updates at ≥ 5 Hz (6 Hz in `app`, up to 30 Hz in the diagnostic).
 - [x] Models live in `./models/` and load from disk on subsequent runs.
 
-### Stretches (current launcher mode)
+### Neck-stretch routine (current launcher mode)
 
-- [x] Selector at startup lists registered exercises; number key picks one.
+- [x] Guided four-set routine (left, right, left, right) driven by `RoutineFSM` (SETUP → POSITIONING → COUNTDOWN → HOLD → TRANSITION → SUMMARY).
+- [x] 3-second positioning + calibration window captures the user's neutral posture; targets scored as a delta from neutral.
+- [x] Spoken Thai cues at each transition (`GeminiTTS` with macOS `say -v Kanya` offline fallback).
 - [x] Hold FSM tracks `IDLE / ENTERING / HOLDING / DRIFTED / COMPLETE` with pause-on-drift timing and a stability penalty on drift count.
-- [x] 100-pt score on completion (50 duration / 30 precision / 20 stability) + Thai summary from the on-device VLM.
+- [x] 100-pt score per set (50 duration / 30 precision / 20 stability) + Thai summary from the on-device VLM.
 - [x] Live Thai nudges during the hold (throttled to ~1 every 3–4 s by Qwen latency).
 - [x] **2D-direct measurement** (nose+shoulders), robust to seated/desk-camera framing where the 3D lift is structurally invalid.
-- [x] **Per-user calibration** — `neck_stretch_left` is scored as a delta from the user's captured neutral (`_NECK_TILT_TARGET_LEFT_DEG = -35°` is now a delta-from-neutral; still a rough value pending real-user tuning).
 - [x] **Camera-view gating** — exercise declares `valid_views`; FSM stays IDLE with a "rotate" coaching message in an unsupported view.
-- [ ] Remaining 9 exercises registered (right-neck, shoulders, chest, hands, neck-flexion). The 2D measurement functions they need already ship in `analysis/angles.py`.
 
 ### Squat (preserved code, not currently exposed)
 
