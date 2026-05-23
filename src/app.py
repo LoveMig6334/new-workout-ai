@@ -138,9 +138,11 @@ def run_neck_stretch_routine(cap, pose, worker, tts_worker, side_exercises, conf
     cur: dict | None = None
     last_frame_ts = time.monotonic()
     last_live_submit = 0.0
-    last_spoken = ""
+    last_spoken = worker.latest() or ""  # don't re-speak text left over from a prior routine
     summary_submit_ts = 0.0
     spoke_summary = False
+    pre_summary_text = ""  # snapshot of live text at routine end, to detect the fresh summary
+    summary_text = ""  # the resolved LLM summary once it differs from pre_summary_text
     view_bad_since: float | None = None
     view_nudge_ts = 0.0
 
@@ -191,7 +193,7 @@ def run_neck_stretch_routine(cap, pose, worker, tts_worker, side_exercises, conf
                     "was_in_target": False,
                 }
                 last_live_submit = 0.0
-                last_spoken = ""
+                last_spoken = worker.latest() or ""  # only speak NEW feedback produced during this set
             elif ev.kind == EV_SET_COMPLETE and cur is not None:
                 done_side = fsm.config.order[ev.value]
                 ex = side_exercises[done_side]
@@ -210,6 +212,8 @@ def run_neck_stretch_routine(cap, pose, worker, tts_worker, side_exercises, conf
                 worker.submit(agg, exercise=side_exercises["left"])
                 summary_submit_ts = now
                 spoke_summary = False
+                pre_summary_text = worker.latest() or ""
+                summary_text = ""
 
         # HOLD accumulation + live feedback.
         if fsm.phase is RoutinePhase.HOLD and cur is not None:
@@ -255,21 +259,22 @@ def run_neck_stretch_routine(cap, pose, worker, tts_worker, side_exercises, conf
             and now - summary_submit_ts > 1.0
         ):
             t = worker.latest()
-            if t and not t.startswith("[LLM error"):
+            if t and t != pre_summary_text and not t.startswith("[LLM error"):
+                summary_text = t
                 tts_worker.submit_feedback(t)
                 spoke_summary = True
 
         last_frame_ts = now
 
         # Render the active screen for this phase (pure — no audio side-effects).
-        canvas = _compose(fsm, frame, in_target, view_ok, worker, set_analyses)
+        canvas = _compose(fsm, frame, in_target, view_ok, worker, set_analyses, summary_text)
         cv2.imshow(_WINDOW, canvas)
         key = cv2.waitKey(1) & 0xFF
         if key == ord("q") or fsm.phase is RoutinePhase.DONE:
             return
 
 
-def _compose(fsm, frame, in_target, view_ok, worker, set_analyses):
+def _compose(fsm, frame, in_target, view_ok, worker, set_analyses, summary_text: str = ""):
     """Pick + draw the screen for the current phase. Pure — no audio side-effects."""
     phase = fsm.phase
     if phase is RoutinePhase.SETUP:
@@ -288,8 +293,7 @@ def _compose(fsm, frame, in_target, view_ok, worker, set_analyses):
     # SUMMARY / DONE
     scores = [a.score for a in set_analyses]
     overall = round(sum(scores) / len(scores)) if scores else 0
-    summary_txt = worker.latest() or ""
-    return screens.draw_summary(scores, overall, summary_txt)
+    return screens.draw_summary(scores, overall, summary_text or "กำลังสรุปผล...")
 
 
 if __name__ == "__main__":
