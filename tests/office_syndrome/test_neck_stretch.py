@@ -4,7 +4,7 @@ import numpy as np
 from analysis.camera_view import CameraView
 from analysis.types import PoseFrame
 from calibration import BaselinePose
-from exercises.neck_stretch import NeckStretchLeft
+from exercises.neck_stretch import NeckStretchLeft, NeckStretchRight
 
 
 # Image-plane fixture: nose above mid-shoulders, shoulders horizontal. The
@@ -179,9 +179,6 @@ def test_measure_with_baseline_preserves_nan_propagation():
     scores[0] = 0.05  # nose unreliable → NaN
     result = ex.measure(_make_frame(kps, scores), baseline=_baseline(-5.0))
     assert math.isnan(result["head_lateral_tilt"])
-
-
-from exercises.neck_stretch import NeckStretchRight
 
 
 def test_right_metadata():
