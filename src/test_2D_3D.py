@@ -78,9 +78,13 @@ PANEL_PAD = 80  # extra vertical room below each panel for readouts
 # to run full-rate here. NOTE: `app.run_session` deliberately stays at 15 Hz —
 # held-pose scoring doesn't need 30 Hz and the lower rate saves power/thermals over
 # a multi-minute coaching session. This higher rate is a diagnostic-only choice.
+#
+# 2D inference is gated on a new camera-frame timestamp (see read_latest_with_ts,
+# matching app.py) rather than a wall-clock throttle, so it runs once per unique
+# frame; the 30 fps loop cap below bounds that rate. _POSE_INFERENCE_HZ remains
+# the assumed rate used for the rig-lag estimate.
 _POSE_INFERENCE_HZ = 30
 _LIFT_HZ = 30
-_INFERENCE_INTERVAL_S = 1.0 / _POSE_INFERENCE_HZ
 _LIFT_INTERVAL_S = 1.0 / _LIFT_HZ
 
 # Per-H36M-joint visibility threshold. A joint draws (and any bone touching
@@ -392,7 +396,7 @@ def run() -> None:
     last_rig_3d: Optional[np.ndarray] = None
     last_kps: Optional[np.ndarray] = None
     last_scores: Optional[np.ndarray] = None
-    last_pose_ts = 0.0
+    last_processed_ts = -1.0
     last_lift_ts = 0.0
 
     # Live profiling state. `prof` holds the most recent per-stage ms; `lift_stamps`
@@ -414,18 +418,19 @@ def run() -> None:
     try:
         while True:
             t0 = time.time()
-            frame_bgr = cam.read_latest(timeout=0.5)
-            if frame_bgr is None:
+            read = cam.read_latest_with_ts(timeout=0.5)
+            if read is None:
                 continue
+            frame_bgr, frame_ts = read
 
-            # Throttle 2D inference at _POSE_INFERENCE_HZ; reuse the last result
-            # on skipped frames so the panels still render at native FPS without
-            # paying ORT cost.
-            if last_kps is None or (t0 - last_pose_ts) >= _INFERENCE_INTERVAL_S:
+            # Run 2D inference only on a new camera frame (timestamp gate, matching
+            # app.py); reuse the last result on duplicate frames so the panels still
+            # render at the loop rate without paying ORT cost.
+            if frame_ts != last_processed_ts:
+                last_processed_ts = frame_ts
                 _ti = time.perf_counter()
                 last_kps, last_scores = pose2d.infer(frame_bgr)
                 prof["infer_ms"] = (time.perf_counter() - _ti) * 1000
-                last_pose_ts = t0
                 if have_3d and coco_to_h36m is not None and buf is not None:
                     buf.push(coco_to_h36m(last_kps, last_scores))
             kps, scores = last_kps, last_scores

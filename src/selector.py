@@ -93,10 +93,26 @@ def choose_routine() -> str:
     cv2.setMouseCallback(window, _on_mouse)
     while True:
         canvas[:] = _PANEL_BG
-        cv2.putText(canvas, "Neck Stretch (2 min)", (40, 90),
-                    cv2.FONT_HERSHEY_SIMPLEX, 1.0, _TEXT_FG, 2, cv2.LINE_AA)
-        cv2.putText(canvas, "Click / SPACE to start, q to quit", (40, 150),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, _HINT_FG, 1, cv2.LINE_AA)
+        cv2.putText(
+            canvas,
+            "Neck Stretch (2 min)",
+            (40, 90),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            1.0,
+            _TEXT_FG,
+            2,
+            cv2.LINE_AA,
+        )
+        cv2.putText(
+            canvas,
+            "Click / SPACE to start, q to quit",
+            (40, 150),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.6,
+            _HINT_FG,
+            1,
+            cv2.LINE_AA,
+        )
         cv2.imshow(window, canvas)
         key = cv2.waitKey(30) & 0xFF
         if key in (ord("q"), 27):

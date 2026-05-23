@@ -40,11 +40,22 @@ class WebcamCapture:
                 self._latest_ts = time.monotonic()
 
     def read_latest(self, timeout: float = 1.0) -> Optional[np.ndarray]:
+        result = self.read_latest_with_ts(timeout)
+        return None if result is None else result[0]
+
+    def read_latest_with_ts(
+        self, timeout: float = 1.0
+    ) -> Optional[tuple[np.ndarray, float]]:
+        """Return (frame_copy, capture_ts) for the most recent frame, or None on
+        timeout. `capture_ts` is the monotonic time the frame was decoded and only
+        advances when the camera produces a *new* frame — so a consumer looping
+        faster than the camera can compare it against the last processed ts and
+        skip redundant work (e.g. pose inference) on a duplicate frame."""
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             with self._lock:
                 if self._latest is not None:
-                    return self._latest.copy()
+                    return self._latest.copy(), self._latest_ts
             time.sleep(0.005)
         return None
 

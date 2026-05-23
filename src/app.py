@@ -6,6 +6,7 @@ Gemini TTS (with macOS say fallback). The routine logic lives in the pure
 RoutineFSM (src/routine.py); this module owns the camera loop, pose inference,
 scoring accumulation, rendering, and audio.
 """
+
 from __future__ import annotations
 
 import time
@@ -28,7 +29,13 @@ from analysis.angles import (
 )
 from analysis.camera_view import classify_view
 from analysis.rules_hold import score_frame, score_hold
-from analysis.types import HoldAnalysis, HoldState, LiveSnapshot, PoseFrame, RuleViolation
+from analysis.types import (
+    HoldAnalysis,
+    HoldState,
+    LiveSnapshot,
+    PoseFrame,
+    RuleViolation,
+)
 from calibration import BaselinePose, CalibrationError, calibrate_from_samples
 from capture import WebcamCapture
 from exercises.neck_stretch import NeckStretchLeft, NeckStretchRight
@@ -81,6 +88,10 @@ def _pose_ready(scores, view) -> bool:
 # visualization-only, so it runs slower than the every-frame 2D pose inference.
 _LIFT_INTERVAL_S = 1.0 / 6.0
 
+# Cap the UI loop so we don't re-render (and previously re-infer) identical
+# frames faster than the camera produces them. Matches test_2D_3D.py's 30 fps cap.
+_FRAME_PERIOD_S = 1.0 / 30.0
+
 
 def _try_load_pose3d():
     """Load the MotionBERT lifter for the debug rig. Returns
@@ -125,8 +136,14 @@ def run():
             except SystemExit:
                 break
             run_neck_stretch_routine(
-                cap, pose, worker, tts_worker, side_exercises,
-                lifter=lifter, buffer_cls=buffer_cls, coco_to_h36m=coco_to_h36m,
+                cap,
+                pose,
+                worker,
+                tts_worker,
+                side_exercises,
+                lifter=lifter,
+                buffer_cls=buffer_cls,
+                coco_to_h36m=coco_to_h36m,
             )
     finally:
         worker.stop()
@@ -156,9 +173,17 @@ def _aggregate(set_analyses: list[HoldAnalysis], exercise_name: str) -> HoldAnal
     )
 
 
-def run_neck_stretch_routine(cap, pose, worker, tts_worker, side_exercises,
-                             lifter=None, buffer_cls=None, coco_to_h36m=None,
-                             config=None):
+def run_neck_stretch_routine(
+    cap,
+    pose,
+    worker,
+    tts_worker,
+    side_exercises,
+    lifter=None,
+    buffer_cls=None,
+    coco_to_h36m=None,
+    config=None,
+):
     fsm = RoutineFSM(config or RoutineConfig())
     cv2.namedWindow(_WINDOW)
     click = {"start": False}
@@ -176,6 +201,15 @@ def run_neck_stretch_routine(cap, pose, worker, tts_worker, side_exercises,
     infer_ms = 0.0
     lift_ms = 0.0
 
+    # Pose state persists across loop iterations: it is recomputed only on a new
+    # camera frame and reused on duplicates (see the inference gate below). The
+    # first iteration always sees a new frame, so these defaults are never read.
+    last_processed_ts = -1.0
+    kps = np.zeros((17, 2), dtype=np.float32)
+    scores = np.zeros((17,), dtype=np.float32)
+    view = classify_view(kps, scores)
+    pose_ready = False
+
     def _on_mouse(event, x, y, flags, param):
         if event == cv2.EVENT_LBUTTONDOWN and screens.point_in_rect(
             x, y, screens.SETUP_BUTTON_RECT
@@ -190,37 +224,55 @@ def run_neck_stretch_routine(cap, pose, worker, tts_worker, side_exercises,
     cur: dict | None = None
     last_frame_ts = time.monotonic()
     last_live_submit = 0.0
-    last_spoken = worker.latest() or ""  # don't re-speak text left over from a prior routine
+    last_spoken = (
+        worker.latest() or ""
+    )  # don't re-speak text left over from a prior routine
     summary_submit_ts = 0.0
     spoke_summary = False
-    pre_summary_text = ""  # snapshot of live text at routine end, to detect the fresh summary
+    pre_summary_text = (
+        ""  # snapshot of live text at routine end, to detect the fresh summary
+    )
     summary_text = ""  # the resolved LLM summary once it differs from pre_summary_text
     view_bad_since: float | None = None
     view_nudge_ts = 0.0
 
     while True:
-        frame = cap.read_latest(timeout=2.0)
-        if frame is None:
+        read = cap.read_latest_with_ts(timeout=2.0)
+        if read is None:
             return
+        frame, frame_ts = read
         now = time.monotonic()
 
-        t_infer = time.perf_counter()
-        kps, scores = pose.infer(frame)
-        infer_ms = (time.perf_counter() - t_infer) * 1000.0
-        view = classify_view(kps, scores)
-        pose_ready = _pose_ready(scores, view)
+        # Run pose inference only on a genuinely new camera frame. The display
+        # loop runs faster than the camera, so without this gate ~25-33% of
+        # inferences (the dominant per-frame cost) are wasted re-processing a
+        # duplicate frame. On a duplicate we reuse the last kps/scores — identical
+        # output, less compute. The 3D buffer is pushed only on a fresh pose too,
+        # so the lift window holds unique frames and the rig is unchanged.
+        if frame_ts != last_processed_ts:
+            last_processed_ts = frame_ts
+            t_infer = time.perf_counter()
+            kps, scores = pose.infer(frame)
+            infer_ms = (time.perf_counter() - t_infer) * 1000.0
+            view = classify_view(kps, scores)
+            pose_ready = _pose_ready(scores, view)
+            if buf3d is not None and coco_to_h36m is not None:
+                buf3d.push(coco_to_h36m(kps, scores))
 
-        # 3D lift for the debug rig: push every frame, lift throttled to ~6 Hz.
-        if buf3d is not None and coco_to_h36m is not None:
-            buf3d.push(coco_to_h36m(kps, scores))
-            if buf3d.ready() and (now - last_lift_ts) >= _LIFT_INTERVAL_S:
-                t_lift = time.perf_counter()
-                try:
-                    last_rig_3d = buf3d.lift(frame.shape[0], frame.shape[1])
-                except Exception as e:  # pragma: no cover - runtime/MPS dependent
-                    print(f"[app] 3D lift error: {e}")
-                lift_ms = (time.perf_counter() - t_lift) * 1000.0
-                last_lift_ts = now
+        # 3D lift for the debug rig, throttled to ~6 Hz (independent of frame
+        # arrival; visualization-only).
+        if (
+            buf3d is not None
+            and buf3d.ready()
+            and (now - last_lift_ts) >= _LIFT_INTERVAL_S
+        ):
+            t_lift = time.perf_counter()
+            try:
+                last_rig_3d = buf3d.lift(frame.shape[0], frame.shape[1])
+            except Exception as e:  # pragma: no cover - runtime/MPS dependent
+                print(f"[app] 3D lift error: {e}")
+            lift_ms = (time.perf_counter() - t_lift) * 1000.0
+            last_lift_ts = now
 
         # FPS over a rolling 1s window.
         frame_times.append(now)
@@ -247,8 +299,12 @@ def run_neck_stretch_routine(cap, pose, worker, tts_worker, side_exercises,
         for ev in fsm.update(now, pose_ready, in_target):
             if ev.kind == EV_POSITION_OK:
                 try:
-                    baseline = calibrate_from_samples(calib_samples, min_clean_frames=30)
-                    print(f"[calibration] OK tilt={baseline.head_lateral_tilt_deg:+.1f}")
+                    baseline = calibrate_from_samples(
+                        calib_samples, min_clean_frames=30
+                    )
+                    print(
+                        f"[calibration] OK tilt={baseline.head_lateral_tilt_deg:+.1f}"
+                    )
                 except CalibrationError as e:
                     print(f"[calibration] FAILED ({e}); absolute-angle mode")
                     baseline = BaselinePose(0.0, 0.0, 0.0, 0, now)
@@ -260,11 +316,15 @@ def run_neck_stretch_routine(cap, pose, worker, tts_worker, side_exercises,
                 cur = {
                     "in_target_ms": 0,
                     "drift_count": 0,
-                    "max_sev": {j.name: 0.0 for j in side_exercises[ev.value].target.joints},
+                    "max_sev": {
+                        j.name: 0.0 for j in side_exercises[ev.value].target.joints
+                    },
                     "was_in_target": False,
                 }
                 last_live_submit = 0.0
-                last_spoken = worker.latest() or ""  # only speak NEW feedback produced during this set
+                last_spoken = (
+                    worker.latest() or ""
+                )  # only speak NEW feedback produced during this set
             elif ev.kind == EV_SET_COMPLETE and cur is not None:
                 done_side = fsm.config.order[ev.value]
                 ex = side_exercises[done_side]
@@ -273,7 +333,9 @@ def run_neck_stretch_routine(cap, pose, worker, tts_worker, side_exercises,
                     "drift_count": cur["drift_count"],
                     "completed_ts": now,
                 }
-                set_analyses.append(score_hold(ex.name, meta, ex.target, cur["max_sev"]))
+                set_analyses.append(
+                    score_hold(ex.name, meta, ex.target, cur["max_sev"])
+                )
                 cur = None
             elif ev.kind == EV_SWITCH_SIDES:
                 tts_worker.play_cue(f"switch_{ev.value}")
@@ -295,9 +357,15 @@ def run_neck_stretch_routine(cap, pose, worker, tts_worker, side_exercises,
                 cur["drift_count"] += 1
             cur["was_in_target"] = in_target
             for v in violations:
-                cur["max_sev"][v.name] = max(cur["max_sev"].get(v.name, 0.0), v.severity)
+                cur["max_sev"][v.name] = max(
+                    cur["max_sev"].get(v.name, 0.0), v.severity
+                )
 
-            if view_ok and side is not None and now - last_live_submit >= _LIVE_SUBMIT_INTERVAL_S:
+            if (
+                view_ok
+                and side is not None
+                and now - last_live_submit >= _LIVE_SUBMIT_INTERVAL_S
+            ):
                 ex = side_exercises[side]
                 progress = min(1.0, fsm.hold_elapsed_s / fsm.config.hold_s)
                 snap = LiveSnapshot(
@@ -339,7 +407,9 @@ def run_neck_stretch_routine(cap, pose, worker, tts_worker, side_exercises,
 
         # Render the active screen for this phase (pure — no audio side-effects),
         # then overlay the 2D skeleton and append the right-hand debug panel.
-        left = _compose(fsm, frame, in_target, view_ok, worker, set_analyses, summary_text)
+        left = _compose(
+            fsm, frame, in_target, view_ok, worker, set_analyses, summary_text
+        )
         if fsm.phase in (
             RoutinePhase.POSITIONING,
             RoutinePhase.COUNTDOWN,
@@ -377,21 +447,31 @@ def run_neck_stretch_routine(cap, pose, worker, tts_worker, side_exercises,
         if key == ord("q") or fsm.phase is RoutinePhase.DONE:
             return
 
+        # Pace the loop to ~30 fps; with inference gated on new frames above, the
+        # extra iterations would otherwise just re-render identical content.
+        elapsed = time.monotonic() - now
+        if elapsed < _FRAME_PERIOD_S:
+            time.sleep(_FRAME_PERIOD_S - elapsed)
 
-def _compose(fsm, frame, in_target, view_ok, worker, set_analyses, summary_text: str = ""):
+
+def _compose(
+    fsm, frame, in_target, view_ok, worker, set_analyses, summary_text: str = ""
+):
     """Pick + draw the screen for the current phase. Pure — no audio side-effects."""
     phase = fsm.phase
     if phase is RoutinePhase.SETUP:
         return screens.draw_setup()
     if phase is RoutinePhase.POSITIONING:
-        return screens.draw_positioning(frame, fsm.position_progress,
-                                        ok=fsm.position_progress > 0.0)
+        return screens.draw_positioning(
+            frame, fsm.position_progress, ok=fsm.position_progress > 0.0
+        )
     if phase is RoutinePhase.COUNTDOWN:
         return screens.draw_countdown(frame, fsm.countdown_value, fsm.current_side)
     if phase is RoutinePhase.HOLD:
         thai = worker.latest() or ""
-        return screens.draw_hold(frame, fsm.current_side, fsm.hold_remaining_s,
-                                 in_target, view_ok, thai)
+        return screens.draw_hold(
+            frame, fsm.current_side, fsm.hold_remaining_s, in_target, view_ok, thai
+        )
     if phase is RoutinePhase.TRANSITION:
         return screens.draw_transition(frame, fsm.next_side)
     # SUMMARY / DONE

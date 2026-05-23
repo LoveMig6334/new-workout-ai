@@ -78,7 +78,9 @@ def _to_first_hold(cfg):
 
 
 def test_hold_completes_then_transition_to_next_side():
-    cfg = RoutineConfig(position_hold_s=1.0, countdown_s=3, hold_s=2.0, transition_s=1.0)
+    cfg = RoutineConfig(
+        position_hold_s=1.0, countdown_s=3, hold_s=2.0, transition_s=1.0
+    )
     fsm, th = _to_first_hold(cfg)
     assert fsm.phase is RoutinePhase.HOLD
     e = fsm.update(th + 2.01, True, True)
@@ -90,11 +92,13 @@ def test_hold_completes_then_transition_to_next_side():
 
 
 def test_transition_advances_to_next_set():
-    cfg = RoutineConfig(position_hold_s=1.0, countdown_s=3, hold_s=2.0, transition_s=1.0)
+    cfg = RoutineConfig(
+        position_hold_s=1.0, countdown_s=3, hold_s=2.0, transition_s=1.0
+    )
     fsm, th = _to_first_hold(cfg)
     t1 = th + 2.01
-    fsm.update(t1, True, True)            # -> TRANSITION
-    fsm.update(t1 + 1.01, True, False)    # transition done -> COUNTDOWN set 1
+    fsm.update(t1, True, True)  # -> TRANSITION
+    fsm.update(t1 + 1.01, True, False)  # transition done -> COUNTDOWN set 1
     assert fsm.phase is RoutinePhase.COUNTDOWN
     assert fsm.set_index == 1
     assert fsm.current_side == "right"

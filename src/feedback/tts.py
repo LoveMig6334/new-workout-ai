@@ -6,6 +6,7 @@ never goes mute. TTSWorker plays audio on a background thread (afplay), with a
 priority cue channel (pre-cached fixed phrases) and a drop-stale feedback
 channel for live LLM coaching.
 """
+
 from __future__ import annotations
 
 import io
@@ -59,7 +60,9 @@ class GeminiTTS:
         return self._synthesize_say(text), ".aiff"
 
     def _synthesize_gemini(self, text: str) -> bytes:
-        assert self._client is not None  # only called from synthesize() when client is set
+        assert (
+            self._client is not None
+        )  # only called from synthesize() when client is set
         from google.genai import types
 
         resp = self._client.models.generate_content(
@@ -77,7 +80,9 @@ class GeminiTTS:
             ),
         )
         pcm = resp.candidates[0].content.parts[0].inline_data.data
-        assert isinstance(pcm, bytes), f"Gemini TTS: expected bytes PCM, got {type(pcm)}"
+        assert isinstance(pcm, bytes), (
+            f"Gemini TTS: expected bytes PCM, got {type(pcm)}"
+        )
         return _pcm_to_wav(pcm)
 
     def _synthesize_say(self, text: str) -> bytes:
@@ -156,8 +161,10 @@ class TTSWorker:
             clip = None
             text = None
             with self._cv:
-                while self._running and not self._cue_queue and (
-                    self._pending_feedback_text is None
+                while (
+                    self._running
+                    and not self._cue_queue
+                    and (self._pending_feedback_text is None)
                 ):
                     self._cv.wait(timeout=0.1)
                 if not self._running:

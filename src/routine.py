@@ -5,6 +5,7 @@ is unit-testable and portable to the future streaming server. The caller
 (`app.py`) maps the returned events to audio cues and screen rendering and owns
 all I/O. Spec: docs/superpowers/specs/2026-05-23-neck-stretch-realtime-demo-design.md
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -24,11 +25,11 @@ class RoutinePhase(Enum):
 
 # Event kinds emitted by RoutineFSM.update(). The caller turns each into an
 # audio cue and/or a one-shot UI change. `value` payloads noted inline.
-EV_POSITION_OK = "position_ok"            # value: None
-EV_COUNTDOWN = "countdown"                # value: int (3, 2, 1)
-EV_SET_STARTED = "set_started"            # value: side str ("left"/"right")
-EV_SET_COMPLETE = "set_complete"          # value: completed set index (int)
-EV_SWITCH_SIDES = "switch_sides"          # value: next side str
+EV_POSITION_OK = "position_ok"  # value: None
+EV_COUNTDOWN = "countdown"  # value: int (3, 2, 1)
+EV_SET_STARTED = "set_started"  # value: side str ("left"/"right")
+EV_SET_COMPLETE = "set_complete"  # value: completed set index (int)
+EV_SWITCH_SIDES = "switch_sides"  # value: next side str
 EV_ROUTINE_COMPLETE = "routine_complete"  # value: None
 
 

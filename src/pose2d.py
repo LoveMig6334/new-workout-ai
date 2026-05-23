@@ -32,12 +32,23 @@ _ONNX_THREADS_DEFAULT = 2
 # 2026-05-23 (onnxruntime 1.26.0) shows ANE scales hard with model size:
 # RTMPose-s 1.5x / RTMPose-m 2.7x / RTMPose-x 8.6x faster than CPU+threads=2.
 # See docs/perf/2026-05-23-coreml-experiment.md.
+#
+# `ModelCacheDirectory` persists the compiled .mlmodelc so CoreML doesn't
+# recompile both models on every process start (the dominant chunk of first-
+# inference latency / startup CPU). ORT keys the cache on the model file-path
+# hash, so the detector and pose sessions don't collide. NOTE: ORT never
+# invalidates this cache — if you swap a model file or change EP options, clear
+# the directory. `SpecializationStrategy=FastPrediction` optimizes the compiled
+# model for prediction latency over load time (paid once, then cached).
+_COREML_CACHE_DIR = PROJECT_ROOT / "models" / "coreml_cache"
 _COREML_PROVIDER = (
     "CoreMLExecutionProvider",
     {
         "RequireStaticInputShapes": "1",
         "ModelFormat": "MLProgram",
         "MLComputeUnits": "ALL",
+        "ModelCacheDirectory": str(_COREML_CACHE_DIR),
+        "SpecializationStrategy": "FastPrediction",
     },
 )
 
@@ -114,6 +125,7 @@ class Pose2D:
         )
 
         if accelerator == "coreml":
+            _COREML_CACHE_DIR.mkdir(parents=True, exist_ok=True)
             providers: list = [_COREML_PROVIDER, "CPUExecutionProvider"]
         else:
             providers = ["CPUExecutionProvider"]

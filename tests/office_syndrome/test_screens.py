@@ -41,19 +41,26 @@ def test_health_color_nan_is_grey():
 def _synthetic_pose():
     kps = np.full((17, 2), 360.0, dtype=np.float32)
     kps[:, 0] = 640.0
-    kps[0] = (640.0, 150.0)   # nose
-    kps[5] = (560.0, 300.0)   # L_shoulder
-    kps[6] = (720.0, 300.0)   # R_shoulder
+    kps[0] = (640.0, 150.0)  # nose
+    kps[5] = (560.0, 300.0)  # L_shoulder
+    kps[6] = (720.0, 300.0)  # R_shoulder
     scores = np.full(17, 0.9, dtype=np.float32)
     return kps, scores
 
 
 def _metrics():
     return {
-        "tilt": -12.3, "cva": 55.0, "fwd": 0.2, "neck_flex": 5.0, "sh_asym": 0.01,
-        "view": "front", "view_ok": True,
+        "tilt": -12.3,
+        "cva": 55.0,
+        "fwd": 0.2,
+        "neck_flex": 5.0,
+        "sh_asym": 0.01,
+        "view": "front",
+        "view_ok": True,
         "conf": {"nose": 0.9, "lsh": 0.9, "rsh": 0.9, "lhip": 0.8, "rhip": 0.8},
-        "fps": 28, "infer_ms": 18.0, "lift_ms": 12.0,
+        "fps": 28,
+        "infer_ms": 18.0,
+        "lift_ms": 12.0,
     }
 
 

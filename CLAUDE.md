@@ -56,7 +56,9 @@ Data flow per frame (hold mode — used within each set of the routine):
 ── session start: _calibration_phase (5 s) → BaselinePose (user's own neutral pose)
 WebcamCapture (bg thread)
    → Pose2D (YOLOX-m + RTMPose-m via rtmlib/ONNX on CoreML/ANE)  kps:(17,2) + scores
-       (2D inference throttled to ~15 Hz; reuses last result on skipped frames)
+       (2D inference gated on a NEW camera frame via cap.read_latest_with_ts —
+        the loop runs faster than the camera, so duplicate frames reuse the last
+        kps/scores instead of re-inferring; the UI loop is capped at ~30 fps)
    → classify_view(kps, scores) → view gate: if view ∉ exercise.target.valid_views,
                                    skip scoring + show "rotate" coaching, FSM stays IDLE
    → exercise.measure(PoseFrame, baseline)                 {joint_name: degrees}
@@ -126,7 +128,7 @@ Hold-mode live cadence: `app.run_session` throttles submissions to ≥ 2.5 s apa
 
 All models live under `./models/` (gitignored) and are downloaded by `scripts/download_models.py`:
 
-- `models/rtmlib_cache/` — YOLOX + RTMPose ONNX, all three rtmlib tiers cached (tiny/m/x detectors, s/m/x pose). `Pose2D` defaults to **`mode="balanced"` (YOLOX-m + RTMPose-m) + `accelerator="coreml"`** (Apple Neural Engine). Benchmarks (`docs/perf/2026-05-23-coreml-experiment.md`): balanced is 8.7 fps on CPU but 54 fps on CoreML, with noticeably better keypoint accuracy than lightweight — the upgrade is what makes the 2D-direct CVA / forward-head metrics reliable. CoreML uses `RequireStaticInputShapes=1` + `ModelFormat=MLProgram` so the dynamic-shape YOLOX NMS subgraph falls back to CPU (dodges the zero-detection crash). `Pose2D` also pins `intra_op_num_threads=2` (faster *and* ~80% less CPU than ORT's all-cores default on M-series).
+- `models/rtmlib_cache/` — YOLOX + RTMPose ONNX, all three rtmlib tiers cached (tiny/m/x detectors, s/m/x pose). `Pose2D` defaults to **`mode="balanced"` (YOLOX-m + RTMPose-m) + `accelerator="coreml"`** (Apple Neural Engine). Benchmarks (`docs/perf/2026-05-23-coreml-experiment.md`): balanced is 8.7 fps on CPU but 54 fps on CoreML, with noticeably better keypoint accuracy than lightweight — the upgrade is what makes the 2D-direct CVA / forward-head metrics reliable. CoreML uses `RequireStaticInputShapes=1` + `ModelFormat=MLProgram` so the dynamic-shape YOLOX NMS subgraph falls back to CPU (dodges the zero-detection crash). It also sets `ModelCacheDirectory=models/coreml_cache` (gitignored) + `SpecializationStrategy=FastPrediction` so the compiled `.mlmodelc` persists across launches instead of recompiling both models every start (Pose2D construction ~0.5 s cold → ~0.1 s warm). ORT never invalidates this cache — clear `models/coreml_cache/` if you swap a model file or change EP options. `Pose2D` also pins `intra_op_num_threads=2` (faster *and* ~80% less CPU than ORT's all-cores default on M-series).
 - `models/motionbert/checkpoint/pose3d/FT_MB_lite_MB_ft_h36m_global_lite/best_epoch.bin` — MotionBERT-Lite weights (HF: `walterzhu/MotionBERT`). Visualization-only (see "2D-direct measurement").
 - `models/qwen3_5_4b_mxfp4/` — Qwen3.5-4B mxfp4 mlx-vlm snapshot
 
@@ -203,4 +205,4 @@ Implications when making changes today:
   - 3D scoring upgrade: `docs/superpowers/specs/2026-05-19-3d-scoring-design.md`. (Superseded for stretches by the 2D-direct decision — kept for the squat path.)
   - Office syndrome stretches: `docs/superpowers/specs/2026-05-22-office-syndrome-stretches-design.md` (impl plan: `docs/superpowers/plans/2026-05-22-office-syndrome-stretches.md`).
   - CPU reduction + 2D-direct measurement coverage: `docs/superpowers/plans/2026-05-23-cpu-and-2d-improvements.md`.
-- Performance notes: `docs/perf/2026-05-23-baseline.md` (ONNX thread sweep, inference-cadence throttle), `docs/perf/2026-05-23-coreml-experiment.md` (CoreML/ANE per-model-size benchmark + the balanced+CoreML default decision).
+- Performance notes: `docs/perf/2026-05-23-baseline.md` (ONNX thread sweep + inference-cadence throttle for Workstream A — note its tables measure `lightweight+cpu`, not the app's `balanced+coreml`; the same doc records the real config numbers and Workstream B: frame-dedup + 30 fps cap, Thai-text sprite cache, CoreML model cache), `docs/perf/2026-05-23-coreml-experiment.md` (CoreML/ANE per-model-size benchmark + the balanced+CoreML default decision).

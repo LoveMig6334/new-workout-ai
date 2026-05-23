@@ -36,6 +36,38 @@ def test_compose_accepts_hold_kwargs_without_error():
     assert out.shape == (480, 640 + 320, 3)
 
 
+def test_load_thai_font_is_cached():
+    from render import _load_thai_font
+
+    a = _load_thai_font(28)
+    b = _load_thai_font(28)
+    assert a is b  # cached per size, not reloaded on every put_thai_text call
+
+
+def test_thai_sprite_is_cached():
+    from render import _thai_sprite
+
+    a = _thai_sprite("ทดสอบ", (20, 40), 28, (255, 255, 255), None, False, 120, 400)
+    b = _thai_sprite("ทดสอบ", (20, 40), 28, (255, 255, 255), None, False, 120, 400)
+    assert a is b  # repeated text reuses the rendered sprite instead of re-rasterizing
+
+
+def test_thai_sprite_none_for_empty_text():
+    from render import _thai_sprite
+
+    assert (
+        _thai_sprite("", (20, 40), 28, (255, 255, 255), None, False, 120, 400) is None
+    )
+
+
+def test_put_thai_text_empty_is_noop():
+    from render import put_thai_text
+
+    img = np.zeros((120, 400, 3), dtype=np.uint8)
+    put_thai_text(img, "", (20, 40), font_size=28)
+    assert img.sum() == 0  # nothing drawn for empty text
+
+
 def test_put_thai_text_draws_pixels():
     from render import put_thai_text
 
