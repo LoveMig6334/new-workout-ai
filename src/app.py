@@ -96,13 +96,17 @@ def run_session(
         measured = exercise.measure(pf)
         in_target, violations = score_frame(exercise.target, measured)
         for v in violations:
-            max_severity_seen[v.name] = max(max_severity_seen.get(v.name, 0.0), v.severity)
+            max_severity_seen[v.name] = max(
+                max_severity_seen.get(v.name, 0.0), v.severity
+            )
 
         state = fsm.update(in_target, ts)
 
         # Live LLM submission, throttled.
-        if state in (HoldState.HOLDING, HoldState.DRIFTED) and \
-           (ts - last_live_submit_ts) >= _LIVE_SUBMIT_INTERVAL_S:
+        if (
+            state in (HoldState.HOLDING, HoldState.DRIFTED)
+            and (ts - last_live_submit_ts) >= _LIVE_SUBMIT_INTERVAL_S
+        ):
             target_ms = int(exercise.target.hold_seconds * 1000) or 1
             snap = LiveSnapshot(
                 exercise_name=exercise.name,
@@ -119,9 +123,13 @@ def run_session(
                 "drift_count": fsm.drift_count,
                 "completed_ts": ts,
             }
-            analysis = score_hold(exercise.name, meta, exercise.target, max_severity_seen)
+            analysis = score_hold(
+                exercise.name, meta, exercise.target, max_severity_seen
+            )
             worker.submit(analysis, exercise=exercise)
-            print(f"[hold {exercise.name}] score={analysis.score} components={analysis.components}")
+            print(
+                f"[hold {exercise.name}] score={analysis.score} components={analysis.components}"
+            )
             # Display the final state for ~3 seconds before returning.
             end_ts = ts + 3.0
             while time.monotonic() < end_ts:

@@ -191,7 +191,9 @@ def test_valgus_offset_3d_invariant_under_body_rotation():
 # ---------------------------------------------------------------------------
 
 
-def _h36m_skeleton_with_head_offset(lat_offset: float, vertical: float = 1.0) -> np.ndarray:
+def _h36m_skeleton_with_head_offset(
+    lat_offset: float, vertical: float = 1.0
+) -> np.ndarray:
     """Build a minimal H36M-17 keypoint array with head offset laterally
     from a vertical thorax-pelvis axis.
 
@@ -202,10 +204,10 @@ def _h36m_skeleton_with_head_offset(lat_offset: float, vertical: float = 1.0) ->
       head = thorax + (lat_offset, -vertical, 0)
     """
     kps = np.zeros((17, 3), dtype=np.float32)
-    kps[0] = (0.0, 0.0, 0.0)          # PELVIS
-    kps[1] = (0.5, 0.0, 0.0)          # R_HIP  → lateral = R_HIP - L_HIP = +x ✓
-    kps[4] = (-0.5, 0.0, 0.0)         # L_HIP
-    kps[8] = (0.0, -1.0, 0.0)         # THORAX
+    kps[0] = (0.0, 0.0, 0.0)  # PELVIS
+    kps[1] = (0.5, 0.0, 0.0)  # R_HIP  → lateral = R_HIP - L_HIP = +x ✓
+    kps[4] = (-0.5, 0.0, 0.0)  # L_HIP
+    kps[8] = (0.0, -1.0, 0.0)  # THORAX
     kps[10] = (lat_offset, -1.0 - vertical, 0.0)  # HEAD
     return kps
 

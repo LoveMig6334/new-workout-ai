@@ -134,21 +134,33 @@ class Renderer:
         if hold_state is not None:
             panel_x = w + 12
             y = h - 90
-            cv2.putText(canvas, f"Hold: {hold_state}", (panel_x, y),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.55, (220, 220, 220), 1, cv2.LINE_AA)
+            cv2.putText(
+                canvas,
+                f"Hold: {hold_state}",
+                (panel_x, y),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.55,
+                (220, 220, 220),
+                1,
+                cv2.LINE_AA,
+            )
             if hold_progress is not None:
                 bar_y = y + 14
                 bar_w = self.panel_width - 24
-                cv2.rectangle(canvas, (panel_x, bar_y),
-                              (panel_x + bar_w, bar_y + 14),
-                              (60, 60, 70), 1)
+                cv2.rectangle(
+                    canvas,
+                    (panel_x, bar_y),
+                    (panel_x + bar_w, bar_y + 14),
+                    (60, 60, 70),
+                    1,
+                )
                 fill = int(bar_w * max(0.0, min(1.0, hold_progress)))
                 color = (90, 220, 90) if hold_state == "holding" else (220, 200, 90)
                 if hold_state == "drifted":
                     color = (90, 150, 220)
-                cv2.rectangle(canvas, (panel_x, bar_y),
-                              (panel_x + fill, bar_y + 14),
-                              color, -1)
+                cv2.rectangle(
+                    canvas, (panel_x, bar_y), (panel_x + fill, bar_y + 14), color, -1
+                )
 
         return canvas
 

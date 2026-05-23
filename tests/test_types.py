@@ -1,5 +1,13 @@
 import numpy as np
-from analysis.types import PoseFrame, PhaseState, RepAnalysis, HoldState, HoldAnalysis, LiveSnapshot, RuleViolation
+from analysis.types import (
+    PoseFrame,
+    PhaseState,
+    RepAnalysis,
+    HoldState,
+    HoldAnalysis,
+    LiveSnapshot,
+    RuleViolation,
+)
 
 
 def test_pose_frame_construction():

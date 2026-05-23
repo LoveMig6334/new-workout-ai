@@ -132,5 +132,7 @@ def head_lateral_tilt_3d(kps_3d: np.ndarray) -> float:
     if float(np.linalg.norm(head_vec)) < 1e-9:
         return float("nan")
     lat_component = float(np.dot(head_vec, lateral))
-    up_component = float(np.dot(head_vec, up))  # up is pelvis→thorax; head is further along up
+    up_component = float(
+        np.dot(head_vec, up)
+    )  # up is pelvis→thorax; head is further along up
     return float(np.degrees(np.arctan2(lat_component, up_component)))

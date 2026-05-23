@@ -30,7 +30,9 @@ def score_frame(
         if deviation > j.tolerance_deg:
             in_target = False
             # Severity ramps from 0 at the tolerance edge to 1.0 at 2x tolerance.
-            severity = min(1.0, (deviation - j.tolerance_deg) / max(j.tolerance_deg, 1e-6))
+            severity = min(
+                1.0, (deviation - j.tolerance_deg) / max(j.tolerance_deg, 1e-6)
+            )
             violations.append(RuleViolation(j.name, severity, j.detail_th))
     return in_target, violations
 
@@ -63,8 +65,11 @@ def score_hold(
     }
     # Build a single violation list from the worst-offending joints (severity > 0.05).
     violations = [
-        RuleViolation(name=jn, severity=sev,
-                      detail_th=next((j.detail_th for j in target.joints if j.name == jn), ""))
+        RuleViolation(
+            name=jn,
+            severity=sev,
+            detail_th=next((j.detail_th for j in target.joints if j.name == jn), ""),
+        )
         for jn, sev in max_severity_seen.items()
         if sev > 0.05
     ]

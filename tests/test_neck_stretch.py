@@ -18,7 +18,7 @@ def _make_frame(kps_3d: np.ndarray | None) -> PoseFrame:
 def _h36m_with_head_at(lat_offset: float) -> np.ndarray:
     kps = np.zeros((17, 3), dtype=np.float32)
     kps[0] = (0.0, 0.0, 0.0)
-    kps[1] = (0.5, 0.0, 0.0)   # R_HIP — matches the fixture convention in test_angles_3d
+    kps[1] = (0.5, 0.0, 0.0)  # R_HIP — matches the fixture convention in test_angles_3d
     kps[4] = (-0.5, 0.0, 0.0)  # L_HIP
     kps[8] = (0.0, -1.0, 0.0)
     kps[10] = (lat_offset, -2.0, 0.0)

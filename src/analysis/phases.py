@@ -62,9 +62,9 @@ class HoldFSM:
     on_hold_complete: Optional[Callable[[dict], None]] = None
 
     state: HoldState = HoldState.IDLE
-    entry_start_ts: Optional[float] = None      # when current ENTERING window began
-    last_hold_ts: Optional[float] = None        # last frame in HOLDING (for accumulation)
-    drift_start_ts: Optional[float] = None      # when current drift began
+    entry_start_ts: Optional[float] = None  # when current ENTERING window began
+    last_hold_ts: Optional[float] = None  # last frame in HOLDING (for accumulation)
+    drift_start_ts: Optional[float] = None  # when current drift began
     in_target_ms: int = 0
     drift_count: int = 0
 
@@ -121,8 +121,10 @@ class HoldFSM:
     def _fire_complete(self, ts: float) -> None:
         self.state = HoldState.COMPLETE
         if self.on_hold_complete:
-            self.on_hold_complete({
-                "in_target_ms": self.in_target_ms,
-                "drift_count": self.drift_count,
-                "completed_ts": ts,
-            })
+            self.on_hold_complete(
+                {
+                    "in_target_ms": self.in_target_ms,
+                    "drift_count": self.drift_count,
+                    "completed_ts": ts,
+                }
+            )

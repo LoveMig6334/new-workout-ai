@@ -3,10 +3,12 @@ from analysis.types import HoldAnalysis
 from exercises.base import JointTarget, TargetPose
 
 
-TP = TargetPose(joints=(
-    JointTarget("a", target_deg=30.0, tolerance_deg=5.0, detail_th="adjust a"),
-    JointTarget("b", target_deg=10.0, tolerance_deg=3.0, detail_th="adjust b"),
-))
+TP = TargetPose(
+    joints=(
+        JointTarget("a", target_deg=30.0, tolerance_deg=5.0, detail_th="adjust a"),
+        JointTarget("b", target_deg=10.0, tolerance_deg=3.0, detail_th="adjust b"),
+    )
+)
 
 
 def test_score_frame_in_target_when_all_joints_within_tolerance():

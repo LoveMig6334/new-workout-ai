@@ -31,10 +31,10 @@ class ThaiCoachLLM:
 
     def generate(
         self,
-        payload,                         # RepAnalysis | HoldAnalysis | LiveSnapshot
+        payload,  # RepAnalysis | HoldAnalysis | LiveSnapshot
         max_tokens: int = 160,
         frame_bgr: Optional[np.ndarray] = None,
-        exercise=None,                   # required for HoldAnalysis / LiveSnapshot
+        exercise=None,  # required for HoldAnalysis / LiveSnapshot
     ) -> str:
         from mlx_vlm import generate as mlx_generate
         from mlx_vlm.prompt_utils import apply_chat_template
@@ -60,12 +60,18 @@ class ThaiCoachLLM:
             {"role": "user", "content": user},
         ]
         prompt = apply_chat_template(
-            self._processor, self._config, messages,
-            num_images=0, enable_thinking=False,
+            self._processor,
+            self._config,
+            messages,
+            num_images=0,
+            enable_thinking=False,
         )
         result = mlx_generate(
-            self._model, self._processor,
-            prompt=prompt, max_tokens=max_tokens, verbose=False,
+            self._model,
+            self._processor,
+            prompt=prompt,
+            max_tokens=max_tokens,
+            verbose=False,
         )
         text = getattr(result, "text", str(result))
         return _THINK_BLOCK.sub("", text).strip()
