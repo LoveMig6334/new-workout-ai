@@ -51,9 +51,14 @@ from analysis.angles import (  # noqa: E402
     R_HIP,
     R_KNEE,
     R_SHOULDER,
+    craniovertebral_angle_2d,
+    forward_head_offset_normalized_2d,
     head_lateral_tilt_2d,
+    neck_flexion_2d,
+    shoulder_elevation_asymmetry_2d,
 )
 from analysis.angles_3d import head_lateral_tilt_3d  # noqa: E402
+from analysis.camera_view import classify_view  # noqa: E402
 from capture import WebcamCapture  # noqa: E402
 from exercises.neck_stretch import NeckStretchLeft  # noqa: E402
 from pose2d import Pose2D  # noqa: E402
@@ -62,7 +67,15 @@ from render import SKELETON  # noqa: E402
 CAM_WIDTH = 640
 CAM_HEIGHT = 480
 PANEL_PAD = 80  # extra vertical room below each panel for readouts
-LIFT_EVERY_N_FRAMES = 5  # match app.run_session cadence; full lift every frame is wasteful
+
+# Throttle the heavy stages so the diagnostic isn't pegging CPU. Camera capture
+# stays at native FPS; 2D inference runs at _POSE_INFERENCE_HZ; 3D lift runs at
+# _LIFT_HZ. On frames where inference is skipped we reuse the previous (kps,
+# scores) so the panels still render — only the ORT cost is skipped.
+_POSE_INFERENCE_HZ = 15
+_LIFT_HZ = 6
+_INFERENCE_INTERVAL_S = 1.0 / _POSE_INFERENCE_HZ
+_LIFT_INTERVAL_S = 1.0 / _LIFT_HZ
 
 # Per-H36M-joint visibility threshold. A joint draws (and any bone touching
 # it draws) only when the joint's source 2D confidence meets this floor.
@@ -80,6 +93,11 @@ H36M_BONES = [
 ]
 
 
+_GREEN = (90, 220, 90)
+_AMBER = (90, 200, 220)
+_GREY = (160, 160, 160)
+
+
 def _draw_text(
     img: np.ndarray,
     text: str,
@@ -90,6 +108,37 @@ def _draw_text(
 ) -> None:
     cv2.putText(img, text, org, cv2.FONT_HERSHEY_SIMPLEX, scale, (0, 0, 0), thick + 2, cv2.LINE_AA)
     cv2.putText(img, text, org, cv2.FONT_HERSHEY_SIMPLEX, scale, color, thick, cv2.LINE_AA)
+
+
+def _health_color(value: float, healthy: bool) -> tuple[int, int, int]:
+    """Grey if the metric is NaN (not measurable), green if within the healthy
+    band, amber otherwise."""
+    if np.isnan(value):
+        return _GREY
+    return _GREEN if healthy else _AMBER
+
+
+def _draw_metric_block(
+    panel: np.ndarray,
+    x: int,
+    y: int,
+    lines: list[tuple[str, tuple[int, int, int]]],
+    line_h: int = 22,
+    box_w: int = 250,
+) -> None:
+    """Draw a list of (text, color) over a translucent dark box so the metric
+    readout stays legible on top of a busy camera image."""
+    if not lines:
+        return
+    top = max(0, y - 17)
+    bottom = min(panel.shape[0], y - 17 + line_h * len(lines) + 8)
+    left = max(0, x - 6)
+    right = min(panel.shape[1], x - 6 + box_w)
+    sub = panel[top:bottom, left:right]
+    if sub.size:
+        cv2.addWeighted(sub, 0.35, np.zeros_like(sub), 0.65, 0.0, dst=sub)
+    for i, (text, color) in enumerate(lines):
+        _draw_text(panel, text, (x, y + i * line_h), color=color, scale=0.5)
 
 
 def _make_panel(w: int, h: int, title: str) -> np.ndarray:
@@ -267,8 +316,8 @@ def run() -> None:
     target = exercise.target.joints[0].target_deg
     tol = exercise.target.joints[0].tolerance_deg
 
-    print(f"[test_2D_3D] Loading 2D pose (RTMPose-s)...")
-    pose2d = Pose2D(device="cpu", mode="lightweight")
+    print(f"[test_2D_3D] Loading 2D pose (default: balanced + CoreML)...")
+    pose2d = Pose2D()  # balanced + coreml default
 
     print(f"[test_2D_3D] Loading 3D lifter (MotionBERT-Lite)...")
     lifter, buf, coco_to_h36m = _try_load_pose3d()
@@ -279,7 +328,10 @@ def run() -> None:
     cam.start()
 
     last_rig_3d: Optional[np.ndarray] = None
-    frame_counter = 0
+    last_kps: Optional[np.ndarray] = None
+    last_scores: Optional[np.ndarray] = None
+    last_pose_ts = 0.0
+    last_lift_ts = 0.0
 
     # Smooth FPS over a small window.
     frame_times: list[float] = []
@@ -294,30 +346,75 @@ def run() -> None:
             if frame_bgr is None:
                 continue
 
-            kps, scores = pose2d.infer(frame_bgr)
+            # Throttle 2D inference at _POSE_INFERENCE_HZ; reuse the last result
+            # on skipped frames so the panels still render at native FPS without
+            # paying ORT cost.
+            if last_kps is None or (t0 - last_pose_ts) >= _INFERENCE_INTERVAL_S:
+                last_kps, last_scores = pose2d.infer(frame_bgr)
+                last_pose_ts = t0
+                if have_3d and coco_to_h36m is not None and buf is not None:
+                    buf.push(coco_to_h36m(last_kps, last_scores))
+            kps, scores = last_kps, last_scores
+            assert kps is not None and scores is not None
+
+            # Full 2D cookbook + camera-view classification (everything the
+            # real app now computes).
             tilt_2d = head_lateral_tilt_2d(kps, scores)
+            cva = craniovertebral_angle_2d(kps, scores)
+            fwd_head = forward_head_offset_normalized_2d(kps, scores)
+            neck_flex = neck_flexion_2d(kps, scores)
+            sh_asym = shoulder_elevation_asymmetry_2d(kps, scores)
+            view = classify_view(kps, scores)
 
             tilt_3d = float("nan")
             joint_conf = _h36m_joint_confidences(scores)
-            if have_3d and coco_to_h36m is not None and buf is not None and lifter is not None:
-                h36m = coco_to_h36m(kps, scores)
-                buf.push(h36m)
-                if buf.ready() and frame_counter % LIFT_EVERY_N_FRAMES == 0:
+            if have_3d and buf is not None and lifter is not None:
+                # 3D lift gated on wall-clock so it stays ≥ _LIFT_HZ.
+                if buf.ready() and (t0 - last_lift_ts) >= _LIFT_INTERVAL_S:
                     last_rig_3d = buf.lift(
                         frame_h=frame_bgr.shape[0], frame_w=frame_bgr.shape[1]
                     )
+                    last_lift_ts = t0
                 if last_rig_3d is not None:
                     tilt_3d = head_lateral_tilt_3d(last_rig_3d)
 
             # ----- compose panels -----
             cam_panel = _make_panel(CAM_WIDTH, CAM_HEIGHT, "1. Camera (raw)")
             cam_panel[30 : 30 + CAM_HEIGHT, :CAM_WIDTH] = frame_bgr
+            # Camera-view classifier (B3): green when the framing is valid for the
+            # active exercise, amber otherwise — mirrors the app's view gate.
+            view_ok = view in exercise.target.valid_views
+            _draw_metric_block(
+                cam_panel,
+                12,
+                52,
+                [(f"view: {view.value}", _GREEN if view_ok else _AMBER)],
+                box_w=210,
+            )
 
-            two_d_panel = _make_panel(CAM_WIDTH, CAM_HEIGHT, "2. 2D pose + neck-tilt")
+            two_d_panel = _make_panel(CAM_WIDTH, CAM_HEIGHT, "2. 2D pose + metrics")
             overlay = frame_bgr.copy()
             _draw_skeleton_2d(overlay, kps, scores)
             _draw_head_tilt_2d_overlay(overlay, kps, scores)
             two_d_panel[30 : 30 + CAM_HEIGHT, :CAM_WIDTH] = overlay
+            # B2 cookbook metrics, colored by their published healthy bands.
+            _draw_metric_block(
+                two_d_panel,
+                12,
+                52,
+                [
+                    (f"head tilt : {tilt_2d:+5.1f}deg" if not np.isnan(tilt_2d) else "head tilt :   --",
+                     _health_color(tilt_2d, abs(tilt_2d - target) <= tol)),
+                    (f"CVA       : {cva:5.1f}deg" if not np.isnan(cva) else "CVA       :   --",
+                     _health_color(cva, cva >= 50.0)),
+                    (f"fwd head  : {fwd_head:5.2f}" if not np.isnan(fwd_head) else "fwd head  :   --",
+                     _health_color(fwd_head, fwd_head < 0.30)),
+                    (f"neck flex : {neck_flex:+5.1f}deg" if not np.isnan(neck_flex) else "neck flex :   --",
+                     _health_color(neck_flex, abs(neck_flex) < 25.0)),
+                    (f"sh asym   : {sh_asym:+5.2f}" if not np.isnan(sh_asym) else "sh asym   :   --",
+                     _health_color(sh_asym, abs(sh_asym) < 0.05)),
+                ],
+            )
 
             three_d_panel = _make_panel(CAM_WIDTH, CAM_HEIGHT, "3. 3D rig (MotionBERT-Lite)")
             _render_rig_3d(
@@ -410,11 +507,13 @@ def run() -> None:
             if key in (ord("q"), 27):
                 break
 
-            frame_counter += 1
-            # Cap UI loop ~60 fps; 2D inference is the bottleneck anyway.
+            # Cap UI loop at 30 fps (matches a typical webcam's native rate). With
+            # inference throttled to 15 Hz separately, the camera panel still updates
+            # every loop iteration but inference results refresh every other frame —
+            # plenty of perceived smoothness without spinning the canvas at 60 fps.
             elapsed = time.time() - t0
-            if elapsed < 1 / 60:
-                time.sleep(1 / 60 - elapsed)
+            if elapsed < 1 / 30:
+                time.sleep(1 / 30 - elapsed)
     finally:
         cam.stop()
         cv2.destroyAllWindows()

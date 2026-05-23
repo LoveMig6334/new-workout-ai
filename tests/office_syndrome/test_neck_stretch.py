@@ -1,7 +1,9 @@
 import math
 import numpy as np
 
+from analysis.camera_view import CameraView
 from analysis.types import PoseFrame
+from calibration import BaselinePose
 from exercises.neck_stretch import NeckStretchLeft
 
 
@@ -36,6 +38,17 @@ def test_metadata():
     assert ex.target.hold_seconds == 20.0
     assert len(ex.target.joints) == 1
     assert ex.target.joints[0].name == "head_lateral_tilt"
+
+
+def test_neck_stretch_valid_views_excludes_side_view():
+    """Neck-tilt-2d depends on a usable shoulder lateral reference. Side view
+    collapses both shoulders to nearly one point, making the measurement
+    degenerate — so the exercise must refuse to score in side view."""
+    ex = NeckStretchLeft()
+    assert CameraView.FRONT in ex.target.valid_views
+    assert CameraView.THREE_QUARTER in ex.target.valid_views
+    assert CameraView.SIDE not in ex.target.valid_views
+    assert CameraView.UNKNOWN not in ex.target.valid_views
 
 
 def test_measure_returns_declared_joints():
@@ -100,3 +113,61 @@ def test_measure_sign_for_left_tilt_is_negative():
     assert result["head_lateral_tilt"] < 0, (
         f"expected negative tilt for left-leaning head, got {result['head_lateral_tilt']}"
     )
+
+
+def _baseline(tilt_deg: float) -> BaselinePose:
+    return BaselinePose(
+        shoulder_width_px=100.0,
+        head_lateral_tilt_deg=tilt_deg,
+        shoulder_y_delta_norm=0.0,
+        sample_count=30,
+        captured_ts=0.0,
+    )
+
+
+def test_measure_without_baseline_returns_absolute_tilt():
+    """Backward compatibility: existing callers that don't pass `baseline` see
+    the same absolute-tilt value they always did."""
+    ex = NeckStretchLeft()
+    kps, scores = _kps2d_with_head_shifted(-30.0)
+    no_baseline = ex.measure(_make_frame(kps, scores))["head_lateral_tilt"]
+    explicit_none = ex.measure(_make_frame(kps, scores), baseline=None)["head_lateral_tilt"]
+    assert no_baseline == explicit_none
+
+
+def test_measure_with_baseline_subtracts_neutral():
+    """A user whose neutral tilt is already −5° (habitual left lean) gets credit
+    only for the *additional* tilt beyond their neutral — not the full absolute
+    angle. delta = absolute − baseline, so at absolute −30° with baseline −5°,
+    delta = −25° (less negative; closer to zero than absolute).
+    """
+    ex = NeckStretchLeft()
+    kps, scores = _kps2d_with_head_shifted(-30.0)
+    abs_tilt = ex.measure(_make_frame(kps, scores))["head_lateral_tilt"]
+
+    baseline = _baseline(tilt_deg=-5.0)
+    delta_tilt = ex.measure(_make_frame(kps, scores), baseline=baseline)["head_lateral_tilt"]
+
+    # delta = abs - (-5.0) = abs + 5.0  (less negative than abs)
+    assert delta_tilt == abs_tilt - (-5.0)
+    assert delta_tilt > abs_tilt  # less negative — user only gets credit for tilt beyond neutral
+
+
+def test_measure_with_zero_baseline_matches_absolute():
+    """If the user's neutral is exactly 0°, baseline-aware measurement should
+    be identical to absolute measurement."""
+    ex = NeckStretchLeft()
+    kps, scores = _kps2d_with_head_shifted(-30.0)
+    abs_tilt = ex.measure(_make_frame(kps, scores))["head_lateral_tilt"]
+    delta_tilt = ex.measure(_make_frame(kps, scores), baseline=_baseline(0.0))["head_lateral_tilt"]
+    assert delta_tilt == abs_tilt
+
+
+def test_measure_with_baseline_preserves_nan_propagation():
+    """If the per-frame measurement is NaN (low confidence), baseline subtraction
+    must not turn it into a number."""
+    ex = NeckStretchLeft()
+    kps, scores = _kps2d_with_head_shifted(-30.0)
+    scores[0] = 0.05  # nose unreliable → NaN
+    result = ex.measure(_make_frame(kps, scores), baseline=_baseline(-5.0))
+    assert math.isnan(result["head_lateral_tilt"])

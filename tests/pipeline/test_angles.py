@@ -3,11 +3,17 @@ import numpy as np
 import pytest
 from analysis.angles import (
     angle_between_3_points,
+    craniovertebral_angle_2d,
+    forward_head_offset_normalized_2d,
     head_lateral_tilt_2d,
     knee_angles,
+    neck_flexion_2d,
+    shoulder_elevation_asymmetry_2d,
+    shoulder_protraction_ratio_2d,
     torso_lean_deg,
     hip_below_knee,
     knee_valgus_ratio,
+    wrist_extension_2d,
 )
 
 
@@ -203,3 +209,175 @@ def test_head_tilt_2d_works_without_scores():
     """`scores=None` skips gating — used when the caller already validated input."""
     kps, _ = _shoulders_and_nose(nose_dx=-30.0)
     assert head_lateral_tilt_2d(kps, scores=None) < 0
+
+
+# ---- 2D office-syndrome cookbook (B2) ----
+
+
+def _side_view_fixture(
+    ear_dy_above_shoulder: float = 100.0,
+    ear_dx_in_front: float = 0.0,
+):
+    """Build a (kps, scores) pair with ONE side fully clean (LEFT) — used for
+    side-view metrics. Shoulder at (100, 200); ear positioned relative."""
+    kps = np.zeros((17, 2), dtype=np.float32)
+    kps[5] = (100.0, 200.0)  # L_shoulder
+    kps[3] = (100.0 + ear_dx_in_front, 200.0 - ear_dy_above_shoulder)  # L_ear
+    # also place a right side so the auto-picker has a fallback
+    kps[6] = (200.0, 200.0)
+    kps[4] = (200.0 + ear_dx_in_front, 200.0 - ear_dy_above_shoulder)
+    scores = np.ones(17, dtype=np.float32) * 0.9
+    return kps, scores
+
+
+def test_cva_upright_is_90deg():
+    """Ear directly above shoulder → CVA = 90° (perfectly upright)."""
+    kps, scores = _side_view_fixture(ear_dy_above_shoulder=100.0, ear_dx_in_front=0.0)
+    assert craniovertebral_angle_2d(kps, scores, side="left") == pytest.approx(90.0, abs=0.5)
+
+
+def test_cva_forward_head_drops_below_50():
+    """Ear well in front of shoulder (forward-head posture) → CVA < 50° (unhealthy)."""
+    kps, scores = _side_view_fixture(ear_dy_above_shoulder=80.0, ear_dx_in_front=80.0)
+    cva = craniovertebral_angle_2d(kps, scores, side="left")
+    assert cva < 50.0
+    assert cva > 0  # still positive — ear is above shoulder
+
+
+def test_cva_nan_when_ear_missing():
+    kps, scores = _side_view_fixture()
+    scores[3] = 0.05  # L_ear missing
+    scores[4] = 0.05  # R_ear missing
+    assert math.isnan(craniovertebral_angle_2d(kps, scores, side="auto"))
+
+
+def test_cva_auto_picks_higher_confidence_side():
+    kps, scores = _side_view_fixture(ear_dy_above_shoulder=100.0, ear_dx_in_front=0.0)
+    # Wreck the right ear, leave left clean → auto must pick left and still report ~90°.
+    scores[4] = 0.05  # R_ear bad
+    assert craniovertebral_angle_2d(kps, scores, side="auto") == pytest.approx(90.0, abs=0.5)
+
+
+def test_forward_head_offset_zero_when_aligned():
+    """Ears directly above shoulders → offset 0."""
+    kps, scores = _shoulders_and_nose(nose_dx=0.0)
+    kps[3] = kps[5]  # L_ear directly above L_shoulder
+    kps[4] = kps[6]
+    assert forward_head_offset_normalized_2d(kps, scores) == pytest.approx(0.0, abs=0.001)
+
+
+def test_forward_head_offset_normalized_by_shoulder_width():
+    kps, scores = _shoulders_and_nose(nose_dx=0.0)
+    # Shoulder width = 100 px. Move ears 30 px forward (away from midline) — offset = 0.30.
+    kps[3] = (kps[5, 0] - 30.0, kps[5, 1] - 80.0)  # ear shifted in image-left = forward for the user
+    kps[4] = (kps[6, 0] + 30.0, kps[6, 1] - 80.0)
+    val = forward_head_offset_normalized_2d(kps, scores)
+    assert val == pytest.approx(0.30, abs=0.01)
+
+
+def test_forward_head_offset_nan_when_no_clean_ear():
+    kps, scores = _shoulders_and_nose(nose_dx=0.0)
+    scores[3] = 0.05
+    scores[4] = 0.05
+    assert math.isnan(forward_head_offset_normalized_2d(kps, scores))
+
+
+def test_neck_flexion_zero_when_upright():
+    """Ear directly above shoulder (no forward/back lean) → flexion ≈ 0°."""
+    kps, scores = _side_view_fixture(ear_dy_above_shoulder=100.0, ear_dx_in_front=0.0)
+    assert neck_flexion_2d(kps, scores, side="left") == pytest.approx(0.0, abs=0.5)
+
+
+def test_neck_flexion_positive_when_head_forward():
+    """Ear forward of shoulder → positive (forward flexion)."""
+    kps, scores = _side_view_fixture(ear_dy_above_shoulder=100.0, ear_dx_in_front=50.0)
+    val = neck_flexion_2d(kps, scores, side="left")
+    assert val > 10.0
+
+
+def test_neck_flexion_nan_when_no_clean_input():
+    kps, scores = _side_view_fixture()
+    scores[3] = scores[4] = 0.05
+    assert math.isnan(neck_flexion_2d(kps, scores, side="auto"))
+
+
+def test_shoulder_asymmetry_zero_when_level():
+    kps, scores = _shoulders_and_nose(nose_dx=0.0)
+    assert shoulder_elevation_asymmetry_2d(kps, scores) == pytest.approx(0.0, abs=0.001)
+
+
+def test_shoulder_asymmetry_positive_when_left_is_higher():
+    """L_shoulder above R_shoulder (smaller image-y for L) → positive value."""
+    kps, scores = _shoulders_and_nose(nose_dx=0.0)
+    kps[5] = (kps[5, 0], kps[5, 1] - 10.0)  # L_shoulder 10 px higher
+    assert shoulder_elevation_asymmetry_2d(kps, scores) > 0
+
+
+def test_shoulder_asymmetry_normalized_by_shoulder_width():
+    """Same y-delta on a narrower frame → bigger normalized value."""
+    kps, scores = _shoulders_and_nose(nose_dx=0.0)
+    kps[5] = (kps[5, 0], kps[5, 1] - 10.0)
+    wide_val = shoulder_elevation_asymmetry_2d(kps, scores)
+
+    kps2 = kps.copy()
+    kps2[5] = (140.0, kps[5, 1])  # shrink shoulders to 60 px
+    kps2[6] = (200.0, kps[6, 1])
+    narrow_val = shoulder_elevation_asymmetry_2d(kps2, scores)
+    assert abs(narrow_val) > abs(wide_val)
+
+
+def test_shoulder_asymmetry_nan_when_shoulder_missing():
+    kps, scores = _shoulders_and_nose(nose_dx=0.0)
+    scores[5] = 0.05
+    assert math.isnan(shoulder_elevation_asymmetry_2d(kps, scores))
+
+
+def test_protraction_ratio_one_at_baseline():
+    kps, scores = _shoulders_and_nose(nose_dx=0.0)
+    # shoulders at 100 px → use 100 px as baseline.
+    val = shoulder_protraction_ratio_2d(kps, scores, baseline_width_px=100.0)
+    assert val == pytest.approx(1.0, abs=0.01)
+
+
+def test_protraction_ratio_below_one_when_protracted():
+    """Shoulders pulled forward → apparent width drops → ratio < 1.0."""
+    kps, scores = _shoulders_and_nose(nose_dx=0.0)
+    kps[5] = (120.0, kps[5, 1])  # shoulders now 80 px apart instead of 100
+    kps[6] = (200.0, kps[6, 1])
+    val = shoulder_protraction_ratio_2d(kps, scores, baseline_width_px=100.0)
+    assert val < 0.95
+
+
+def test_protraction_ratio_nan_without_baseline():
+    kps, scores = _shoulders_and_nose(nose_dx=0.0)
+    assert math.isnan(shoulder_protraction_ratio_2d(kps, scores, baseline_width_px=0.0))
+
+
+def test_wrist_extension_zero_when_inline():
+    """Wrist at same y as elbow → extension 0."""
+    kps = np.zeros((17, 2), dtype=np.float32)
+    kps[7] = (100.0, 300.0)  # L_elbow
+    kps[9] = (200.0, 300.0)  # L_wrist (same y)
+    kps[8] = (110.0, 300.0)  # R_elbow
+    kps[10] = (210.0, 300.0)  # R_wrist
+    scores = np.ones(17, dtype=np.float32) * 0.9
+    assert wrist_extension_2d(kps, scores, side="left") == pytest.approx(0.0, abs=0.001)
+
+
+def test_wrist_extension_negative_when_wrist_above_elbow():
+    """Wrist ABOVE elbow (smaller image-y) → negative extension (dorsiflexed)."""
+    kps = np.zeros((17, 2), dtype=np.float32)
+    kps[7] = (100.0, 300.0)
+    kps[9] = (200.0, 200.0)  # wrist 100 px above elbow
+    scores = np.ones(17, dtype=np.float32) * 0.9
+    val = wrist_extension_2d(kps, scores, side="left")
+    assert val < 0
+    assert val == pytest.approx(-1.0 / np.sqrt(2), abs=0.05)  # 100 dy / sqrt(100² + 100²)
+
+
+def test_wrist_extension_nan_when_side_missing():
+    kps = np.zeros((17, 2), dtype=np.float32)
+    kps[7] = (100.0, 300.0); kps[9] = (200.0, 300.0)
+    kps[8] = (110.0, 300.0); kps[10] = (210.0, 300.0)
+    scores = np.zeros(17, dtype=np.float32)  # ALL low confidence
+    assert math.isnan(wrist_extension_2d(kps, scores, side="auto"))

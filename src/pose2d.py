@@ -13,30 +13,114 @@ _RTMLIB_HUB = PROJECT_ROOT / "models" / "rtmlib_cache" / "hub"
 _rtmlib_file._get_rtmhub_dir = lambda: str(_RTMLIB_HUB)
 
 
+# Default ONNX intra-op thread count for both detection and pose sessions.
+# ORT's default is `num_logical_cpus`, which thrashes on an M-series and is
+# objectively slower than 2-4 threads for our tiny models. Sweep on 2026-05-23
+# (M-series, 18 logical cores, onnxruntime 1.26.0) — see
+# docs/perf/2026-05-23-baseline.md:
+#   threads=default (18) → 53 fps, 1247% process CPU
+#   threads=2            → 59 fps, 239% process CPU  (+11% throughput, -81% CPU)
+#   threads=4            → 61 fps, 527% process CPU
+# Two threads is the sweet spot for our real-time target.
+_ONNX_THREADS_DEFAULT = 2
+
+# CoreML EP provider config that (a) routes the conv backbone onto the Apple
+# Neural Engine / GPU and (b) keeps the dynamic-shape YOLOX NMS subgraph on CPU
+# via `RequireStaticInputShapes=1`, which sidesteps the zero-detection crash
+# (CoreML EP can't handle a {-1} tensor that becomes {0} at runtime). MLProgram
+# is the modern CoreML format with proper dynamic-shape handling. Benchmark on
+# 2026-05-23 (onnxruntime 1.26.0) shows ANE scales hard with model size:
+# RTMPose-s 1.5x / RTMPose-m 2.7x / RTMPose-x 8.6x faster than CPU+threads=2.
+# See docs/perf/2026-05-23-coreml-experiment.md.
+_COREML_PROVIDER = (
+    "CoreMLExecutionProvider",
+    {
+        "RequireStaticInputShapes": "1",
+        "ModelFormat": "MLProgram",
+        "MLComputeUnits": "ALL",
+    },
+)
+
+Accelerator = Literal["cpu", "coreml"]
+
+
+def _rebuild_session(sub_model, providers: list, intra_op_threads: int) -> None:
+    """Replace `sub_model.session` with an equivalent InferenceSession using the
+    given execution-provider list + a constrained CPU thread pool. Works against
+    rtmlib's YOLOX / RTMPose wrappers where `sub_model.session` and
+    `sub_model.onnx_model` are public attributes."""
+    import onnxruntime as ort
+
+    opts = ort.SessionOptions()
+    opts.intra_op_num_threads = intra_op_threads
+    opts.inter_op_num_threads = 1
+    opts.log_severity_level = 3  # silence CoreML compile chatter
+    sub_model.session = ort.InferenceSession(
+        sub_model.onnx_model,
+        sess_options=opts,
+        providers=providers,
+    )
+
+
 class Pose2D:
     """Wraps rtmlib's RTMPose. Single-person inference: returns the highest-score person.
     Optionally returns simcc-decoded heatmaps via `infer_with_heatmaps`.
 
-    `mode="lightweight"` loads YOLOX-tiny + RTMPose-s (~55 FPS on CPU at 720p, M-series).
-    `mode="balanced"` loads YOLOX-m + RTMPose-m (~12 FPS).
-    `mode="performance"` loads YOLOX-x + RTMPose-x (~3 FPS) — rtmlib's "performance" means
-    accuracy-first, not speed-first.
+    Model sizes (full-pipeline median ms on M-series, onnxruntime 1.26.0 —
+    see docs/perf/2026-05-23-coreml-experiment.md):
+      - `mode="lightweight"` (YOLOX-tiny + RTMPose-s): 14.7 ms CPU / 11.8 ms CoreML
+      - `mode="balanced"` (YOLOX-m + RTMPose-m): 114 ms CPU / 18.6 ms CoreML  ← DEFAULT
+      - `mode="performance"` (YOLOX-x + RTMPose-x): 416 ms CPU / 89 ms CoreML
 
-    `device="mps"` (CoreML EP) currently crashes on every YOLOX variant in rtmlib due to a
-    dynamic-shape NMS op that fails when zero detections are produced. Stay on CPU until
-    rtmlib swaps to RTMO or onnxruntime gets a fix.
+    Default is `mode="balanced"` + `accelerator="coreml"`: at 54 fps it's well above
+    the live 15 Hz inference target with far better keypoint accuracy than lightweight,
+    and the conv compute runs on the Neural Engine instead of the CPU. balanced is
+    unusable on CPU (8.7 fps), so the default only makes sense paired with CoreML.
+
+    `accelerator` selects the execution provider for both sessions:
+      - `"cpu"` (default): CPUExecutionProvider with `onnx_threads` intra-op threads.
+        Best for the lightweight model — the conv backbone is small enough that
+        CoreML's per-inference overhead isn't worth it.
+      - `"coreml"`: routes the conv backbone onto the Apple Neural Engine / GPU
+        while keeping the dynamic-shape YOLOX NMS subgraph on CPU
+        (`RequireStaticInputShapes=1`) to dodge the zero-detection crash. Wins
+        grow with model size — pick this when running `balanced` / `performance`.
+        See `_COREML_PROVIDER` and `docs/perf/2026-05-23-coreml-experiment.md`.
+
+    `onnx_threads` constrains the ONNX intra-op thread pool of both sessions.
+    Defaults to `_ONNX_THREADS_DEFAULT = 2`, which is faster AND uses ~80% less
+    CPU than ORT's default of "all cores" on M-series for our tiny models. With
+    `accelerator="coreml"` this still bounds the CPU-side ops (NMS, fallbacks).
+
+    `device` is retained for signature compatibility but is no longer used for
+    EP selection — sessions are always rebuilt below per `accelerator`.
     """
 
     def __init__(
         self,
         device: str = "cpu",
-        mode: Literal["lightweight", "balanced", "performance"] = "lightweight",
+        mode: Literal["lightweight", "balanced", "performance"] = "balanced",
+        onnx_threads: int = _ONNX_THREADS_DEFAULT,
+        accelerator: Accelerator = "coreml",
     ):
         from rtmlib import Body
 
+        # Always construct on CPU; sessions are rebuilt below per `accelerator`.
+        # (Constructing rtmlib's Body with device="mps" can crash YOLOX during
+        # inference; routing CoreML via session rebuild gives us full control of
+        # the provider options needed to avoid that.)
         self._body = Body(
-            mode=mode, to_openpose=False, backend="onnxruntime", device=device
+            mode=mode, to_openpose=False, backend="onnxruntime", device="cpu"
         )
+
+        if accelerator == "coreml":
+            providers: list = [_COREML_PROVIDER, "CPUExecutionProvider"]
+        else:
+            providers = ["CPUExecutionProvider"]
+
+        threads = onnx_threads if onnx_threads > 0 else _ONNX_THREADS_DEFAULT
+        _rebuild_session(self._body.det_model, providers, threads)
+        _rebuild_session(self._body.pose_model, providers, threads)
 
         # rtmlib 0.0.15 exposes the pose estimator as `pose_model`
         self._pose = getattr(self._body, "pose_model", None)

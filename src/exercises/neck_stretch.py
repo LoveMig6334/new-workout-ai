@@ -1,12 +1,17 @@
+import math
+from typing import Optional
+
 from analysis.angles import head_lateral_tilt_2d
+from analysis.camera_view import CameraView
 from analysis.types import PoseFrame
+from calibration import BaselinePose
 from exercises.base import JointTarget, PromptTemplate, TargetPose
 
 
-# Initial guess. Calibrate per spec §11.3 (see Task 13). Calibration is against
-# the 2D measurement (nose + shoulders in image plane), since MotionBERT-Lite's
-# H36M training does not cover the seated / upper-body-only camera framing this
-# project targets — see src/test_2D_3D.py for the comparison harness.
+# Target is expressed as a DELTA from the user's calibrated neutral tilt:
+# "−35° below your own natural head position" rather than "−35° in absolute
+# image space." When `measure()` is called without a baseline (e.g. legacy
+# tests), the delta-subtraction is skipped — same absolute behavior as before.
 _NECK_TILT_TARGET_LEFT_DEG = -35.0
 _NECK_TILT_TOLERANCE_DEG = 10.0
 
@@ -41,12 +46,23 @@ class NeckStretchLeft:
         ),
         hold_seconds=20.0,
         side="left",
+        # Neck-tilt-2d uses nose + shoulders, which are reliable in front and
+        # three-quarter views. Side view collapses both shoulders onto one
+        # point and makes the lateral reference degenerate, so refuse to score.
+        valid_views=(CameraView.FRONT, CameraView.THREE_QUARTER),
     )
     prompt = PromptTemplate(live=_LIVE_TH, summary=_SUMMARY_TH)
 
-    def measure(self, frame: PoseFrame) -> dict[str, float]:
-        return {
-            "head_lateral_tilt": head_lateral_tilt_2d(
-                frame.keypoints_2d, frame.scores
-            )
-        }
+    def measure(
+        self,
+        frame: PoseFrame,
+        baseline: Optional[BaselinePose] = None,
+    ) -> dict[str, float]:
+        tilt = head_lateral_tilt_2d(frame.keypoints_2d, frame.scores)
+        if (
+            baseline is not None
+            and not math.isnan(tilt)
+            and not math.isnan(baseline.head_lateral_tilt_deg)
+        ):
+            tilt = tilt - baseline.head_lateral_tilt_deg
+        return {"head_lateral_tilt": tilt}
