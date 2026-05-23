@@ -5,24 +5,28 @@ from analysis.types import PoseFrame
 from exercises.neck_stretch import NeckStretchLeft
 
 
-def _make_frame(kps_3d: np.ndarray | None) -> PoseFrame:
+# Image-plane fixture: nose above mid-shoulders, shoulders horizontal. The
+# `head_dx` parameter shifts the nose laterally; head_dx < 0 = head tilted toward
+# L_shoulder (the body's -lateral direction), matching the NeckStretchLeft target.
+def _kps2d_with_head_shifted(head_dx: float) -> tuple[np.ndarray, np.ndarray]:
+    kps = np.zeros((17, 2), dtype=np.float32)
+    # Shoulders 100 px apart, at image-y = 200; L is at x=100 (image-left), R at x=200.
+    kps[5] = (100.0, 200.0)  # L_shoulder
+    kps[6] = (200.0, 200.0)  # R_shoulder
+    # Nose 100 px above mid-shoulders (smaller y = up in image coords).
+    kps[0] = (150.0 + head_dx, 100.0)
+    scores = np.ones(17, dtype=np.float32)
+    return kps, scores
+
+
+def _make_frame(kps_2d: np.ndarray, scores: np.ndarray) -> PoseFrame:
     return PoseFrame(
         timestamp=0.0,
-        keypoints_2d=np.zeros((17, 2), dtype=np.float32),
-        scores=np.ones(17, dtype=np.float32),
+        keypoints_2d=kps_2d,
+        scores=scores,
         frame_shape=(720, 1280),
-        keypoints_3d=kps_3d,
+        keypoints_3d=None,
     )
-
-
-def _h36m_with_head_at(lat_offset: float) -> np.ndarray:
-    kps = np.zeros((17, 3), dtype=np.float32)
-    kps[0] = (0.0, 0.0, 0.0)
-    kps[1] = (0.5, 0.0, 0.0)  # R_HIP — matches the fixture convention in test_angles_3d
-    kps[4] = (-0.5, 0.0, 0.0)  # L_HIP
-    kps[8] = (0.0, -1.0, 0.0)
-    kps[10] = (lat_offset, -2.0, 0.0)
-    return kps
 
 
 def test_metadata():
@@ -36,13 +40,26 @@ def test_metadata():
 
 def test_measure_returns_declared_joints():
     ex = NeckStretchLeft()
-    measured = ex.measure(_make_frame(_h36m_with_head_at(-0.5)))
+    kps, scores = _kps2d_with_head_shifted(-30.0)
+    measured = ex.measure(_make_frame(kps, scores))
     assert set(measured.keys()) == {"head_lateral_tilt"}
 
 
-def test_measure_nan_when_no_3d_keypoints():
+def test_measure_nan_when_nose_confidence_low():
+    """If RTMPose can't see the nose, the measurement must surface as NaN so the
+    FSM stays IDLE rather than acting on garbage."""
     ex = NeckStretchLeft()
-    measured = ex.measure(_make_frame(None))
+    kps, scores = _kps2d_with_head_shifted(-30.0)
+    scores[0] = 0.05  # nose below threshold
+    measured = ex.measure(_make_frame(kps, scores))
+    assert math.isnan(measured["head_lateral_tilt"])
+
+
+def test_measure_nan_when_shoulder_confidence_low():
+    ex = NeckStretchLeft()
+    kps, scores = _kps2d_with_head_shifted(-30.0)
+    scores[5] = 0.05  # L_shoulder below threshold
+    measured = ex.measure(_make_frame(kps, scores))
     assert math.isnan(measured["head_lateral_tilt"])
 
 
@@ -71,12 +88,15 @@ def test_prompt_template_renders_live_without_keyerror():
 
 
 def test_measure_sign_for_left_tilt_is_negative():
-    """Catch a regression if the head-tilt sign convention ever flips."""
+    """Catch a regression if the head-tilt sign convention ever flips.
+
+    Fixture has R_shoulder.x > L_shoulder.x (body_lateral = +x). A nose shifted
+    to -x is leaning toward the body's L_shoulder side, which must produce a
+    NEGATIVE tilt to match the NeckStretchLeft target of -35°.
+    """
     ex = NeckStretchLeft()
-    # Negative lat_offset = head tilted toward body's -lateral direction.
-    # With the fixture's hip orientation (R_HIP at +x, L_HIP at -x), body_lateral = +x,
-    # so a -x head offset yields a negative tilt angle.
-    result = ex.measure(_make_frame(_h36m_with_head_at(-0.5)))
+    kps, scores = _kps2d_with_head_shifted(-30.0)
+    result = ex.measure(_make_frame(kps, scores))
     assert result["head_lateral_tilt"] < 0, (
         f"expected negative tilt for left-leaning head, got {result['head_lateral_tilt']}"
     )

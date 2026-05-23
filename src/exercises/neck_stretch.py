@@ -1,9 +1,12 @@
-from analysis.angles_3d import head_lateral_tilt_3d
+from analysis.angles import head_lateral_tilt_2d
 from analysis.types import PoseFrame
 from exercises.base import JointTarget, PromptTemplate, TargetPose
 
 
-# Initial guess. Calibrate per spec §11.3 (see Task 13).
+# Initial guess. Calibrate per spec §11.3 (see Task 13). Calibration is against
+# the 2D measurement (nose + shoulders in image plane), since MotionBERT-Lite's
+# H36M training does not cover the seated / upper-body-only camera framing this
+# project targets — see src/test_2D_3D.py for the comparison harness.
 _NECK_TILT_TARGET_LEFT_DEG = -35.0
 _NECK_TILT_TOLERANCE_DEG = 10.0
 
@@ -42,6 +45,8 @@ class NeckStretchLeft:
     prompt = PromptTemplate(live=_LIVE_TH, summary=_SUMMARY_TH)
 
     def measure(self, frame: PoseFrame) -> dict[str, float]:
-        if frame.keypoints_3d is None:
-            return {"head_lateral_tilt": float("nan")}
-        return {"head_lateral_tilt": head_lateral_tilt_3d(frame.keypoints_3d)}
+        return {
+            "head_lateral_tilt": head_lateral_tilt_2d(
+                frame.keypoints_2d, frame.scores
+            )
+        }
