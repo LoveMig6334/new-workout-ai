@@ -102,7 +102,7 @@ def draw_hold(
     canvas = _mirror(frame)
     border = _GREEN if in_target else _AMBER
     cv2.rectangle(canvas, (4, 4), (W - 4, H - 4), border, 8)
-    put_thai_text(canvas, f"ยืดคอด้าน{_SIDE_TH.get(side, side or '')}", (30, 30),
+    put_thai_text(canvas, f"ยืดคอด้าน{_SIDE_TH.get(side or '', '')}", (30, 30),
                   font_size=34, color=_WHITE)
     cv2.putText(canvas, f"{int(np.ceil(remaining_s)):02d}", (W - 150, 80),
                 cv2.FONT_HERSHEY_SIMPLEX, 2.2, _WHITE, 5, cv2.LINE_AA)
