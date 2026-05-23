@@ -18,6 +18,66 @@ SKELETON = [
 ]
 
 
+_THAI_FONT_PATH = "/System/Library/Fonts/Supplemental/Ayuthaya.ttf"
+
+
+def _load_thai_font(size: int):
+    from PIL import ImageFont
+
+    try:
+        return ImageFont.truetype(_THAI_FONT_PATH, size)
+    except OSError:
+        return ImageFont.load_default()
+
+
+def put_thai_text(
+    img: np.ndarray,
+    text: str,
+    org: tuple[int, int],
+    font_size: int = 22,
+    color: tuple[int, int, int] = (255, 255, 255),
+    max_width: int | None = None,
+    center: bool = False,
+) -> None:
+    """Draw Thai text onto a BGR ndarray in place.
+
+    `color` is BGR (OpenCV convention). `max_width` (px) word-wraps; otherwise
+    splits on '\\n'. `center=True` horizontally centers each line on org[0].
+    """
+    from PIL import Image, ImageDraw
+
+    pil = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+    draw = ImageDraw.Draw(pil)
+    font = _load_thai_font(font_size)
+    rgb = (color[2], color[1], color[0])
+    x, y = org
+
+    if max_width:
+        lines, line = [], ""
+        for word in text.split():
+            test = (line + " " + word).strip()
+            if draw.textbbox((0, 0), test, font=font)[2] > max_width and line:
+                lines.append(line)
+                line = word
+            else:
+                line = test
+        if line:
+            lines.append(line)
+    else:
+        lines = text.split("\n")
+
+    line_h = int(font_size * 1.3)
+    cy = y
+    for ln in lines:
+        bbox = draw.textbbox((0, 0), ln, font=font)
+        w = bbox[2] - bbox[0]
+        lx = x - w // 2 if center else x
+        draw.text((lx, cy), ln, fill=rgb, font=font)
+        cy += line_h
+
+    np.copyto(img, cv2.cvtColor(np.array(pil), cv2.COLOR_RGB2BGR))
+
+
 class Renderer:
     def __init__(self, panel_width: int = 320):
         self.panel_width = panel_width

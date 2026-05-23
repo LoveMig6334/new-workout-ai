@@ -34,3 +34,19 @@ def test_compose_accepts_hold_kwargs_without_error():
         hold_progress=0.5,
     )
     assert out.shape == (480, 640 + 320, 3)
+
+
+def test_put_thai_text_draws_pixels():
+    from render import put_thai_text
+
+    img = np.zeros((120, 400, 3), dtype=np.uint8)
+    put_thai_text(img, "ทดสอบ", (20, 40), font_size=28, color=(255, 255, 255))
+    assert img.sum() > 0  # something was drawn
+
+
+def test_put_thai_text_center_runs():
+    from render import put_thai_text
+
+    img = np.zeros((120, 400, 3), dtype=np.uint8)
+    put_thai_text(img, "กลาง", (200, 50), font_size=28, color=(0, 255, 0), center=True)
+    assert img.sum() > 0
