@@ -60,14 +60,21 @@ CAM_HEIGHT = 480
 PANEL_PAD = 80  # extra vertical room below each panel for readouts
 LIFT_EVERY_N_FRAMES = 5  # match app.run_session cadence; full lift every frame is wasteful
 
-# H36M-17 bones used by the 3D rig panel (matches the notebooks' topology).
-H36M_SKELETON = [
-    (0, 1), (1, 2), (2, 3),
-    (0, 4), (4, 5), (5, 6),
-    (0, 7), (7, 8), (8, 9), (9, 10),
-    (8, 11), (11, 12), (12, 13),
-    (8, 14), (14, 15), (15, 16),
+# H36M-17 bones split by trust region. Lower body comes from lifted hip / knee /
+# ankle joints that are unreliable when the camera crops below the chest; we draw
+# them dimmed in red so the panel makes the seated-OOD effect visible rather than
+# hiding it behind a confident-looking skeleton.
+H36M_UPPER_BONES = [
+    (0, 7), (7, 8), (8, 9), (9, 10),         # pelvis → spine → thorax → neck → head
+    (8, 11), (11, 12), (12, 13),             # left arm
+    (8, 14), (14, 15), (15, 16),             # right arm
 ]
+H36M_LOWER_BONES = [
+    (0, 1), (1, 2), (2, 3),                  # right leg
+    (0, 4), (4, 5), (5, 6),                  # left leg
+]
+H36M_UPPER_JOINTS = [0, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+H36M_LOWER_JOINTS = [1, 2, 3, 4, 5, 6]
 
 
 def _draw_text(
@@ -124,13 +131,66 @@ def _draw_head_tilt_2d_overlay(
     cv2.circle(img, (int(mid[0]), int(mid[1])), 5, (0, 180, 255), -1, cv2.LINE_AA)
 
 
+def _lower_body_lift_is_valid(rig: np.ndarray) -> tuple[bool, str]:
+    """Structural sanity check on MotionBERT-Lite's lifted lower body.
+
+    H36M training is full-body standing / walking only. For chest-up framings
+    the lift confidently produces structurally impossible legs — most commonly
+    *crossed ankles* (R_ankle on left side of L_ankle) and *2-3× elongated
+    bones*. This check catches both. Returns (is_valid, reason). When False,
+    the caller should hide the lower-body bones rather than render garbage.
+    """
+    if not np.isfinite(rig).all():
+        return False, "non-finite values"
+
+    # Use thorax → head as a stable reference length (always well-lifted).
+    ref = float(np.linalg.norm(rig[10] - rig[8]))
+    if ref < 1e-3:
+        return False, "no reference length"
+
+    # Crossed ankles: R_ankle should be on the same lateral side of L_ankle
+    # that R_hip is of L_hip. Sign products < 0 means the leg chains crossed.
+    hip_dx = float(rig[1, 0] - rig[4, 0])    # R_hip.x - L_hip.x
+    ankle_dx = float(rig[3, 0] - rig[6, 0])  # R_ankle.x - L_ankle.x
+    if hip_dx * ankle_dx < 0:
+        return False, "crossed ankles"
+
+    # Each leg bone should be within [0.3×, 2.5×] of the thorax→head reference.
+    bones = [(1, 2, "R thigh"), (2, 3, "R shin"), (4, 5, "L thigh"), (5, 6, "L shin")]
+    for a, b, label in bones:
+        d = float(np.linalg.norm(rig[a] - rig[b]))
+        ratio = d / ref
+        if ratio > 2.5:
+            return False, f"{label} {ratio:.1f}x ref"
+        if ratio < 0.3:
+            return False, f"{label} too short"
+
+    return True, ""
+
+
 def _render_rig_3d(
     panel: np.ndarray,
     rig: Optional[np.ndarray],
     box: tuple[int, int, int, int],
+    lift_invalid_reason: Optional[str] = None,
 ) -> None:
-    """Render an H36M-17 rig inside the given bounding box (x0, y0, w, h).
-    Uses the same view convention as the notebooks (X horizontal, Y-vertical = -3D_y)."""
+    """Render an H36M-17 rig inside the bounding box (x0, y0, w, h).
+
+    Two design choices that differ from the notebooks' matplotlib view:
+
+    1. **No y-negation.** MotionBERT outputs image-y-down (head at y ≈ -0.5,
+       feet at y ≈ +0.5); OpenCV canvas y also grows downward. So `rig[:, 1]`
+       maps to canvas-y directly. The matplotlib notebooks flip it because
+       matplotlib's 3D Z-axis is up; OpenCV doesn't need that.
+    2. **Scale by the upper-body bbox, not the whole-rig bbox.** When the camera
+       crops below the chest, MotionBERT's lifted hips / knees / ankles are
+       out-of-distribution and frequently land far from the torso. Using the
+       whole-rig bbox lets that garbage dominate the panel and squash the
+       (correct) upper body into a sliver. Scaling by the trusted upper-body
+       bbox preserves the torso's natural proportions and lets the OOD lower
+       body fall wherever — clipped to the panel border — as a visible
+       diagnostic signal.
+    """
     x0, y0, w, h = box
     cv2.rectangle(panel, (x0, y0), (x0 + w, y0 + h), (60, 60, 60), 1)
     if rig is None:
@@ -138,21 +198,64 @@ def _render_rig_3d(
                    color=(160, 160, 160), scale=0.5)
         return
 
-    pts = np.stack([rig[:, 0], -rig[:, 1]], axis=1)
-    mins = pts.min(axis=0)
-    maxs = pts.max(axis=0)
-    span = max((maxs - mins).max(), 1e-3)
-    pts = (pts - mins) / span
-    # Centre + leave a 10 px margin.
-    pts[:, 0] = x0 + 10 + pts[:, 0] * (w - 20)
-    pts[:, 1] = y0 + 10 + pts[:, 1] * (h - 20)
+    pts = rig[:, :2].astype(np.float32)
 
-    for a, b in H36M_SKELETON:
-        pa = (int(pts[a, 0]), int(pts[a, 1]))
-        pb = (int(pts[b, 0]), int(pts[b, 1]))
-        cv2.line(panel, pa, pb, (0, 200, 255), 2, cv2.LINE_AA)
-    for x, y in pts:
-        cv2.circle(panel, (int(x), int(y)), 3, (0, 200, 255), -1, cv2.LINE_AA)
+    upper = pts[H36M_UPPER_JOINTS]
+    upper_min = upper.min(axis=0)
+    upper_max = upper.max(axis=0)
+    upper_span = max(float((upper_max - upper_min).max()), 1e-3)
+
+    # Fit the upper-body bbox into the panel with a small margin, preserving aspect.
+    margin = 16
+    avail = float(min(w, h) - 2 * margin)
+    scale = avail / upper_span
+    upper_centre = (upper_min + upper_max) / 2.0
+    panel_centre = np.array([x0 + w / 2.0, y0 + h / 2.0], dtype=np.float32)
+
+    screen = (pts - upper_centre) * scale + panel_centre
+
+    rect = (x0, y0, w, h)
+
+    def _line(a: int, b: int, color: tuple[int, int, int], thick: int) -> None:
+        p1 = (int(screen[a, 0]), int(screen[a, 1]))
+        p2 = (int(screen[b, 0]), int(screen[b, 1]))
+        ok, p1c, p2c = cv2.clipLine(rect, p1, p2)
+        if ok:
+            cv2.line(panel, p1c, p2c, color, thick, cv2.LINE_AA)
+
+    def _dot(i: int, color: tuple[int, int, int], radius: int) -> None:
+        x, y = int(screen[i, 0]), int(screen[i, 1])
+        if x0 <= x <= x0 + w and y0 <= y <= y0 + h:
+            cv2.circle(panel, (x, y), radius, color, -1, cv2.LINE_AA)
+
+    # Draw lower-body first (dim red) so upper body sits on top — but only when
+    # the lift is structurally plausible. When invalid, skip the bones and write
+    # the failure reason near where the legs would be.
+    if lift_invalid_reason is None:
+        for a, b in H36M_LOWER_BONES:
+            _line(a, b, (60, 60, 200), 1)
+        for i in H36M_LOWER_JOINTS:
+            _dot(i, (60, 60, 200), 2)
+    else:
+        _draw_text(
+            panel,
+            "lower-body lift invalid",
+            (x0 + 12, y0 + h - 36),
+            color=(80, 80, 220),
+            scale=0.5,
+        )
+        _draw_text(
+            panel,
+            f"  {lift_invalid_reason}",
+            (x0 + 12, y0 + h - 16),
+            color=(80, 80, 220),
+            scale=0.5,
+        )
+
+    for a, b in H36M_UPPER_BONES:
+        _line(a, b, (0, 200, 255), 2)
+    for i in H36M_UPPER_JOINTS:
+        _dot(i, (0, 200, 255), 3)
 
 
 def _try_load_pose3d():
@@ -217,6 +320,7 @@ def run() -> None:
             tilt_2d = head_lateral_tilt_2d(kps, scores)
 
             tilt_3d = float("nan")
+            lift_invalid_reason: Optional[str] = None
             if have_3d and coco_to_h36m is not None and buf is not None and lifter is not None:
                 h36m = coco_to_h36m(kps, scores)
                 buf.push(h36m)
@@ -226,6 +330,8 @@ def run() -> None:
                     )
                 if last_rig_3d is not None:
                     tilt_3d = head_lateral_tilt_3d(last_rig_3d)
+                    valid, reason = _lower_body_lift_is_valid(last_rig_3d)
+                    lift_invalid_reason = None if valid else reason
 
             # ----- compose panels -----
             cam_panel = _make_panel(CAM_WIDTH, CAM_HEIGHT, "1. Camera (raw)")
@@ -238,7 +344,12 @@ def run() -> None:
             two_d_panel[30 : 30 + CAM_HEIGHT, :CAM_WIDTH] = overlay
 
             three_d_panel = _make_panel(CAM_WIDTH, CAM_HEIGHT, "3. 3D rig (MotionBERT-Lite)")
-            _render_rig_3d(three_d_panel, last_rig_3d, box=(20, 40, CAM_WIDTH - 40, CAM_HEIGHT - 20))
+            _render_rig_3d(
+                three_d_panel,
+                last_rig_3d,
+                box=(20, 40, CAM_WIDTH - 40, CAM_HEIGHT - 20),
+                lift_invalid_reason=lift_invalid_reason,
+            )
 
             # ----- readouts -----
             # Camera panel: per-keypoint confidences for the ones the 2D measurement uses,
@@ -305,13 +416,22 @@ def run() -> None:
                     (12, 30 + CAM_HEIGHT + 22),
                     color=color_3d,
                 )
-                _draw_text(
-                    three_d_panel,
-                    "uses lifted PELVIS + hips. unreliable when lower body cropped.",
-                    (12, 30 + CAM_HEIGHT + 50),
-                    color=(170, 170, 170),
-                    scale=0.45,
-                )
+                if lift_invalid_reason is not None:
+                    _draw_text(
+                        three_d_panel,
+                        f"lower-body lift invalid: {lift_invalid_reason}",
+                        (12, 30 + CAM_HEIGHT + 50),
+                        color=(80, 80, 220),
+                        scale=0.45,
+                    )
+                else:
+                    _draw_text(
+                        three_d_panel,
+                        "uses lifted PELVIS + hips. unreliable when lower body cropped.",
+                        (12, 30 + CAM_HEIGHT + 50),
+                        color=(170, 170, 170),
+                        scale=0.45,
+                    )
 
             canvas = np.hstack([cam_panel, two_d_panel, three_d_panel])
             cv2.imshow(window_name, canvas)
