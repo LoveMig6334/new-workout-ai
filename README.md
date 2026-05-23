@@ -17,10 +17,10 @@ uv run python main.py
 
 Usage:
 
-- **Start screen**: click the Start button (or press Space) to begin the routine.
+- **Start screen**: click the on-screen Start button to begin the routine.
 - **Positioning**: stand so the camera clearly sees your head, shoulders, and hips. A humanoid outline guides placement. Hold still for 3 seconds — this window also captures your neutral posture for per-user calibration.
 - **Countdown**: a 3·2·1 countdown plays with a spoken Thai side cue (e.g. "เอียงซ้าย").
-- **Hold (25 s)**: tilt your neck to the indicated side and hold. Live Thai coaching plays during the hold. The timer advances only while your form is on-target; drifting pauses it briefly.
+- **Hold (25 s)**: tilt your neck to the indicated side and hold. Live Thai coaching plays during the hold. The 25-second timer counts down in real time regardless of your form — your tilt accuracy drives the live coaching and the set score, not the duration.
 - **Routine**: four sets alternate left → right → left → right. A summary screen shows at the end.
 - **Quit**: press `q` or Esc at any time to exit.
 
