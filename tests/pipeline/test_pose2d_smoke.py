@@ -2,7 +2,7 @@ import cv2
 import pytest
 from pathlib import Path
 
-FIXTURE = Path(__file__).parent / "fixtures" / "standing_person.jpg"
+FIXTURE = Path(__file__).resolve().parent.parent / "fixtures" / "standing_person.jpg"
 
 
 @pytest.mark.skipif(not FIXTURE.exists(), reason="fixture image not downloaded")

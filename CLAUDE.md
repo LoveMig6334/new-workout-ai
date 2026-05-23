@@ -116,6 +116,7 @@ The main loop is the only consumer of OpenCV's GUI (`cv2.imshow` / `cv2.waitKey`
 
 ## Testing notes
 
+- Tests are split into three sections (see `tests/README.md` for the full inventory): `tests/pipeline/` (shared pose pipeline — 47 tests), `tests/squat/` (original rep-based mode — 16 tests), `tests/office_syndrome/` (current launcher mode — 34 tests). Run a single section with `uv run pytest tests/<section>`.
 - `tests/conftest.py` adds `src/` to `sys.path` (pytest config also does this — both are intentional, removing one breaks `python -m pytest` invocations).
 - The `*_smoke.py` tests actually load the heavy models (RTMPose, MotionBERT, Qwen) and will be slow/fail without `scripts/download_models.py` having run. They use `pytest.mark.skipif` against `tests/fixtures/...` and `models/...` paths anchored from `__file__`, so they skip gracefully when assets are missing.
 - Pure-logic tests are fast and have no model dependency — prefer these when iterating on `analysis/` or `exercises/`. The pure-logic set: `test_angles`, `test_angles_3d`, `test_phases`, `test_hold_fsm`, `test_rules_squat`, `test_rules_hold`, `test_attention`, `test_types`, `test_exercises_base`, `test_exercises_registry`, `test_neck_stretch`, `test_prompt_th`, `test_render`, `test_worker`.

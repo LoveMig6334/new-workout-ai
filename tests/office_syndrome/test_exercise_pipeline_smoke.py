@@ -7,8 +7,8 @@ from analysis.rules_hold import score_frame
 from analysis.types import PoseFrame
 from exercises.neck_stretch import NeckStretchLeft
 
-FIXTURE = Path(__file__).resolve().parent / "fixtures" / "neck_stretch_left.jpg"
-_MODELS = Path(__file__).resolve().parent.parent / "models" / "rtmlib_cache"
+FIXTURE = Path(__file__).resolve().parent.parent / "fixtures" / "neck_stretch_left.jpg"
+_MODELS = Path(__file__).resolve().parent.parent.parent / "models" / "rtmlib_cache"
 
 
 @pytest.mark.skipif(

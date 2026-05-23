@@ -1,7 +1,7 @@
 from pathlib import Path
 import pytest
 
-QWEN_DIR = Path(__file__).resolve().parent.parent / "models" / "qwen3_5_4b_mxfp4"
+QWEN_DIR = Path(__file__).resolve().parent.parent.parent / "models" / "qwen3_5_4b_mxfp4"
 
 
 @pytest.mark.skipif(not QWEN_DIR.exists(), reason="Qwen model not downloaded")
