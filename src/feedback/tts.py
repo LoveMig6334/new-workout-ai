@@ -59,6 +59,7 @@ class GeminiTTS:
         return self._synthesize_say(text), ".aiff"
 
     def _synthesize_gemini(self, text: str) -> bytes:
+        assert self._client is not None  # only called from synthesize() when client is set
         from google.genai import types
 
         resp = self._client.models.generate_content(
@@ -76,6 +77,7 @@ class GeminiTTS:
             ),
         )
         pcm = resp.candidates[0].content.parts[0].inline_data.data
+        assert isinstance(pcm, bytes), f"Gemini TTS: expected bytes PCM, got {type(pcm)}"
         return _pcm_to_wav(pcm)
 
     def _synthesize_say(self, text: str) -> bytes:
@@ -118,6 +120,7 @@ class TTSWorker:
 
     def precache(self, phrases: dict[str, str]) -> None:
         """Synthesize fixed cue phrases once (blocking). Call at startup."""
+        assert not self._running, "precache() must be called before start()"
         for key, text in phrases.items():
             self._cue_cache[key] = self._tts.synthesize(text)
 
@@ -165,8 +168,10 @@ class TTSWorker:
                     kind, text = "feedback", self._pending_feedback_text
                     self._pending_feedback_text = None
             if kind == "cue":
+                assert clip is not None
                 self._play(clip[0], clip[1])
             elif kind == "feedback":
+                assert text is not None
                 try:
                     audio, suffix = self._tts.synthesize(text)
                 except Exception as e:
