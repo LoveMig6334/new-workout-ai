@@ -67,12 +67,14 @@ class RoutineFSM:
         self.hold_remaining_s = self.config.hold_s
         self.transition_remaining_s = self.config.transition_s
         # Internal timers.
-        self._phase_start: Optional[float] = None
+        self._phase_start: float = 0.0  # always set before read by _enter_* helpers
         self._pos_ok_since: Optional[float] = None
         self._last_countdown_emitted: Optional[int] = None
 
     @property
     def current_side(self) -> Optional[str]:
+        """Active side ("left"/"right") during COUNTDOWN or HOLD; None otherwise
+        (i.e., during POSITIONING, TRANSITION, SUMMARY, or DONE)."""
         if self.phase in (RoutinePhase.COUNTDOWN, RoutinePhase.HOLD) and (
             0 <= self.set_index < self.config.sets
         ):
@@ -85,6 +87,7 @@ class RoutineFSM:
         return self.config.order[nxt] if nxt < self.config.sets else None
 
     def start(self, now: float) -> None:
+        # Idempotent: only acts in SETUP, no-op if called again in any other phase.
         if self.phase is RoutinePhase.SETUP:
             self.phase = RoutinePhase.POSITIONING
             self._pos_ok_since = None
@@ -93,6 +96,8 @@ class RoutineFSM:
     def update(
         self, now: float, pose_ready: bool, in_target: bool
     ) -> list[RoutineEvent]:
+        # `in_target` is accepted but currently unused; reserved for a future
+        # drift-detection extension that will pause hold progress on drift.
         events: list[RoutineEvent] = []
         c = self.config
 
@@ -113,8 +118,9 @@ class RoutineFSM:
         elif self.phase is RoutinePhase.COUNTDOWN:
             elapsed = now - self._phase_start
             remaining = c.countdown_s - elapsed
-            # Use a tiny epsilon so timestamps landing just under a whole second
-            # (due to float arithmetic) snap to the expected integer step.
+            # Shift slightly upward before truncation so a timestamp landing at e.g.
+            # 0.9999999997 (float rounding) truncates to 1, not 0. 1e-9 is far below any
+            # real countdown step (steps are >= 1 s apart), so it never fires a step early.
             n = max(1, c.countdown_s - int(elapsed + 1e-9))
             self.countdown_value = n
             if self._last_countdown_emitted != n and remaining > 0:
