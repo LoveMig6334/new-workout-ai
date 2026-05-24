@@ -21,6 +21,8 @@ This project uses `uv` (Python 3.12) — always invoke Python via `uv run`.
 uv sync --all-extras                          # install + dev deps
 uv run python scripts/download_models.py      # one-time, ~6 GB into ./models/
 uv run python main.py                         # guided neck-stretch routine: Start screen → positioning/calibration → 4×25s alternating holds with spoken Thai cues → summary; q/Esc quits
+uv run python main.py --source ip --url http://<phone-ip>:8080/video   # same routine, frames from an Android IP Webcam app over the LAN
+uv run python -m camera --url http://<phone-ip>:8080/video             # standalone IP webcam preview (verify the phone stream first)
 
 uv run python src/test_2D_3D.py               # 3-panel diagnostic: camera / 2D pose + metrics / 3D rig — live, with per-stage profiling + 2D cookbook + camera-view label (mirrored display)
 uv run python scripts/profile_pipeline.py     # headless per-stage timing harness (CPU%, ms/stage); flags: --onnx-threads, --pose-stride, --output
@@ -138,7 +140,7 @@ All models live under `./models/` (gitignored) and are downloaded by `scripts/do
 
 Three background threads, all daemonized:
 
-1. **WebcamCapture._loop** — pulls frames, keeps only the latest. `read_latest()` returns a copy with timeout.
+1. **WebcamCapture._loop / IPWebcamCapture._loop** — pulls frames, keeps only the latest. `read_latest()` returns a copy with timeout. `IPWebcamCapture` (`src/camera/`) is a drop-in source that streams an Android IP Webcam app's MJPEG feed over the LAN (`iter_jpeg_frames` parses the stream; reconnects on drop); pick it with `--source ip --url ...` on `app.py` / `test_2D_3D.py` via `camera.build_capture`. It is the first step toward the streaming-server direction below.
 2. **LLMWorker._loop** — condition-variable wait, drop-stale submission.
 3. **Pose2D / Pose3D** themselves are not threaded; they run inline on the main loop.
 

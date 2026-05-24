@@ -30,6 +30,7 @@ that's the seated-OOD effect in action.
 
 from __future__ import annotations
 
+import argparse
 import sys
 import time
 from pathlib import Path
@@ -59,7 +60,7 @@ from analysis.angles import (  # noqa: E402
 )
 from analysis.angles_3d import head_lateral_tilt_3d  # noqa: E402
 from analysis.camera_view import classify_view  # noqa: E402
-from capture import WebcamCapture  # noqa: E402
+from camera import build_capture  # noqa: E402
 from exercises.neck_stretch import NeckStretchLeft  # noqa: E402
 from pose2d import Pose2D  # noqa: E402
 from render import SKELETON  # noqa: E402
@@ -377,7 +378,24 @@ def _tilt_status(
     return "out of target", (90, 200, 220)
 
 
-def run() -> None:
+def _parse_args(argv=None) -> argparse.Namespace:
+    p = argparse.ArgumentParser(
+        prog="test_2D_3D", description="2D/3D pose pipeline diagnostic"
+    )
+    p.add_argument("--source", choices=["webcam", "ip"], default="webcam")
+    p.add_argument(
+        "--url",
+        default=None,
+        help="IP Webcam MJPEG URL (required for --source ip)",
+    )
+    args = p.parse_args(argv)
+    if args.source == "ip" and not args.url:
+        p.error("--source ip requires --url (e.g. http://192.168.1.42:8080/video)")
+    return args
+
+
+def run(argv=None) -> None:
+    args = _parse_args(argv)
     exercise = NeckStretchLeft()
     target = exercise.target.joints[0].target_deg
     tol = exercise.target.joints[0].tolerance_deg
@@ -389,8 +407,8 @@ def run() -> None:
     lifter, buf, coco_to_h36m = _try_load_pose3d()
     have_3d = lifter is not None
 
-    print(f"[test_2D_3D] Opening webcam at {CAM_WIDTH}x{CAM_HEIGHT}...")
-    cam = WebcamCapture(device=0, width=CAM_WIDTH, height=CAM_HEIGHT)
+    print(f"[test_2D_3D] Opening {args.source} source...")
+    cam = build_capture(args.source, args.url, width=CAM_WIDTH, height=CAM_HEIGHT)
     cam.start()
 
     last_rig_3d: Optional[np.ndarray] = None

@@ -1036,8 +1036,27 @@ Expected: PASS — the previous 169 tests plus the new `test_ip_webcam.py` tests
 
 - [ ] **Step 2: Lint and format**
 
-Run: `uv run ruff check && uv run ruff format`
-Expected: no lint errors; formatter reports files unchanged (or formats the new files cleanly — re-stage if it reformats).
+Run: `uv run ruff check`
+
+The repo has **4 pre-existing errors that are NOT in scope** (do not fix them — unrelated refactoring):
+- `notebooks/neck_stretch_test_pipeline/neck_stretch_video_to_3d.ipynb` cell 15 — E402
+- `src/analysis/angles.py:51` — E741 (`l`)
+- `src/analysis/phases.py:21` — E741 (`l`)
+- `src/test_2D_3D.py:209` — E741 (`l`, inside the pre-existing `_draw_head_tilt_2d_overlay`)
+
+Expected: exactly those 4 errors and **no new ones** introduced by this branch. Verify the new files are clean by scoping the check:
+
+```bash
+uv run ruff check src/camera tests/pipeline/test_ip_webcam.py
+```
+
+Expected: `All checks passed!`
+
+Then format only what this branch touched and re-stage if anything changes:
+
+```bash
+uv run ruff format src/camera tests/pipeline/test_ip_webcam.py src/app.py src/test_2D_3D.py
+```
 
 - [ ] **Step 3: Document the new source in `CLAUDE.md`**
 
