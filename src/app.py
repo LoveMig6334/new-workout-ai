@@ -9,6 +9,7 @@ scoring accumulation, rendering, and audio.
 
 from __future__ import annotations
 
+import argparse
 import time
 
 import cv2
@@ -37,7 +38,7 @@ from analysis.types import (
     RuleViolation,
 )
 from calibration import BaselinePose, CalibrationError, calibrate_from_samples
-from capture import WebcamCapture
+from camera import build_capture
 from exercises.neck_stretch import NeckStretchLeft, NeckStretchRight
 from feedback.llm import ThaiCoachLLM
 from feedback.tts import GeminiTTS, TTSWorker
@@ -107,8 +108,31 @@ def _try_load_pose3d():
         return None, None, None
 
 
-def run():
-    cap = WebcamCapture(device=0, width=1280, height=720)
+def _parse_args(argv=None) -> argparse.Namespace:
+    p = argparse.ArgumentParser(
+        prog="workout-ai", description="Guided neck-stretch demo"
+    )
+    p.add_argument(
+        "--source",
+        choices=["webcam", "ip"],
+        default="webcam",
+        help="Frame source (default: webcam)",
+    )
+    p.add_argument(
+        "--url",
+        default=None,
+        help="IP Webcam MJPEG URL (required for --source ip), "
+        "e.g. http://192.168.1.42:8080/video",
+    )
+    args = p.parse_args(argv)
+    if args.source == "ip" and not args.url:
+        p.error("--source ip requires --url (e.g. http://192.168.1.42:8080/video)")
+    return args
+
+
+def run(argv=None):
+    args = _parse_args(argv)
+    cap = build_capture(args.source, args.url, width=1280, height=720)
     pose = Pose2D()
 
     print("Loading 3D lifter (MotionBERT) for the debug rig...")
