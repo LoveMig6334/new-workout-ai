@@ -26,11 +26,33 @@ Usage:
 
 **TTS**: spoken cues use Google AI Studio (`gemini-2.5-flash-preview-tts`). Set `google_ai_studio_api_key` in a `.env` file at the repo root. If the key is absent or the request fails, the app falls back to the offline macOS `say -v Kanya` voice automatically.
 
+### Use a phone as the camera (IP Webcam over LAN)
+
+Install the **IP Webcam** Android app, start its server, and note the URL it shows (e.g. `http://192.168.1.104:8080`). Then, from a machine on the same network:
+
+```bash
+uv run python -m camera --url http://192.168.1.104:8080/video                 # preview the stream first (q/Esc to quit)
+uv run python main.py --source ip --url http://192.168.1.104:8080/video       # run the routine on the phone feed
+```
+
+Frames are letterboxed to the app's working size, so pose angles stay correct regardless of the phone's resolution. With no `--source` flag, both entry points default to the local webcam.
+
 Diagnostic / debugging:
 
 ```bash
-uv run python src/test_2D_3D.py            # live 3-panel view: camera / 2D pose + metrics / 3D rig, with profiling
-uv run python scripts/profile_pipeline.py  # headless per-stage timing (CPU%, ms/stage)
+uv run python src/test_2D_3D.py                                               # live 3-panel view: camera / 2D pose + metrics / 3D rig, with profiling
+uv run python src/test_2D_3D.py --source ip --url http://192.168.1.104:8080/video   # same diagnostic, fed from the phone
+uv run python scripts/profile_pipeline.py                                     # headless per-stage timing (CPU%, ms/stage)
+```
+
+## Development
+
+```bash
+uv run pytest                       # full test suite
+uv run pytest -k "not smoke"        # skip tests that load heavy model weights
+uv run pytest tests/office_syndrome # one section (pipeline / squat / office_syndrome)
+uv run ruff check                   # lint
+uv run ruff format                  # format
 ```
 
 ## Stack
