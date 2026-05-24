@@ -6,6 +6,7 @@ import pytest
 import requests
 
 from camera import build_capture
+from camera.__main__ import _parse_args
 from camera.ip_webcam import IPWebcamCapture, _normalize_url, iter_jpeg_frames
 from capture import WebcamCapture
 
@@ -189,3 +190,13 @@ def test_build_capture_ip_returns_ipwebcamcapture():
 def test_build_capture_ip_without_url_raises():
     with pytest.raises(ValueError, match="--url"):
         build_capture("ip", None, width=1280, height=720)
+
+
+def test_preview_parse_args_requires_url():
+    with pytest.raises(SystemExit):
+        _parse_args([])  # no --url
+
+
+def test_preview_parse_args_accepts_url():
+    args = _parse_args(["--url", "192.168.1.42:8080"])
+    assert args.url == "192.168.1.42:8080"
