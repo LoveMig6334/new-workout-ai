@@ -8,6 +8,8 @@ frame — exactly like `capture.WebcamCapture`, so it is a drop-in source.
 
 from __future__ import annotations
 
+from urllib.parse import urlsplit, urlunsplit
+
 _SOI = b"\xff\xd8"  # JPEG Start Of Image
 _EOI = b"\xff\xd9"  # JPEG End Of Image
 
@@ -33,3 +35,14 @@ def iter_jpeg_frames(buffer: bytes) -> tuple[list[bytes], bytes]:
             return frames, buffer[soi:]  # incomplete frame; buffer it
         frames.append(buffer[soi : eoi + 2])
         buffer = buffer[eoi + 2 :]
+
+
+def _normalize_url(url: str) -> str:
+    """Accept `<ip>:<port>`, with or without scheme/path, and return a full
+    MJPEG URL. Adds `http://` if no scheme, and `/video` if the path is empty."""
+    url = url.strip()
+    if not url.startswith(("http://", "https://")):
+        url = "http://" + url
+    parts = urlsplit(url)
+    path = parts.path if parts.path not in ("", "/") else "/video"
+    return urlunsplit((parts.scheme, parts.netloc, path, parts.query, ""))

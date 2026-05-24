@@ -1,7 +1,8 @@
 import cv2
 import numpy as np
+import pytest
 
-from camera.ip_webcam import iter_jpeg_frames
+from camera.ip_webcam import _normalize_url, iter_jpeg_frames
 
 
 def _jpeg(value: int) -> bytes:
@@ -64,3 +65,18 @@ def test_trailing_lone_ff_byte_is_kept_as_possible_split_soi():
     frames, remainder = iter_jpeg_frames(a + b"\xff")
     assert frames == [a]
     assert remainder == b"\xff"
+
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        ("http://192.168.1.42:8080/video", "http://192.168.1.42:8080/video"),
+        ("192.168.1.42:8080", "http://192.168.1.42:8080/video"),
+        ("http://192.168.1.42:8080", "http://192.168.1.42:8080/video"),
+        ("http://192.168.1.42:8080/", "http://192.168.1.42:8080/video"),
+        ("  192.168.1.42:8080  ", "http://192.168.1.42:8080/video"),
+        ("http://192.168.1.42:8080/videofeed", "http://192.168.1.42:8080/videofeed"),
+    ],
+)
+def test_normalize_url(raw, expected):
+    assert _normalize_url(raw) == expected
