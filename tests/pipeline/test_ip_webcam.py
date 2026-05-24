@@ -37,7 +37,7 @@ def test_frame_split_across_chunk_boundary():
     a = _jpeg(10)
     cut = len(a) // 2
     frames1, rem1 = iter_jpeg_frames(a[:cut])
-    assert frames1 == []          # no EOI yet -> buffered
+    assert frames1 == []  # no EOI yet -> buffered
     assert rem1 == a[:cut]
     frames2, rem2 = iter_jpeg_frames(rem1 + a[cut:])
     assert frames2 == [a]
@@ -110,9 +110,7 @@ class _FakeResp:
 
 
 def _patch_get(monkeypatch, resp_factory):
-    monkeypatch.setattr(
-        requests, "get", lambda url, **kw: resp_factory(), raising=True
-    )
+    monkeypatch.setattr(requests, "get", lambda url, **kw: resp_factory(), raising=True)
 
 
 def test_start_decodes_latest_frame(monkeypatch):
