@@ -5,6 +5,7 @@ LAN; it mirrors the interface of `capture.WebcamCapture` so it is a drop-in
 replacement (see CLAUDE.md "streaming server for mobile client").
 """
 
-from camera.ip_webcam import iter_jpeg_frames
+from camera.ip_webcam import IPWebcamCapture, iter_jpeg_frames
+from camera.select import build_capture
 
-__all__ = ["iter_jpeg_frames"]
+__all__ = ["IPWebcamCapture", "iter_jpeg_frames", "build_capture"]

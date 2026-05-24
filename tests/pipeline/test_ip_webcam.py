@@ -5,7 +5,9 @@ import numpy as np
 import pytest
 import requests
 
+from camera import build_capture
 from camera.ip_webcam import IPWebcamCapture, _normalize_url, iter_jpeg_frames
+from capture import WebcamCapture
 
 
 def _jpeg(value: int) -> bytes:
@@ -172,3 +174,18 @@ def test_read_latest_returns_none_before_any_frame(monkeypatch):
         assert cap.read_latest(timeout=0.2) is None
     finally:
         cap.stop()
+
+
+def test_build_capture_webcam_returns_webcamcapture():
+    cap = build_capture("webcam", None, width=1280, height=720)
+    assert isinstance(cap, WebcamCapture)
+
+
+def test_build_capture_ip_returns_ipwebcamcapture():
+    cap = build_capture("ip", "192.168.1.42:8080", width=1280, height=720)
+    assert isinstance(cap, IPWebcamCapture)
+
+
+def test_build_capture_ip_without_url_raises():
+    with pytest.raises(ValueError, match="--url"):
+        build_capture("ip", None, width=1280, height=720)
