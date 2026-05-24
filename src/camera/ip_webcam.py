@@ -56,25 +56,53 @@ def _normalize_url(url: str) -> str:
     return urlunsplit((parts.scheme, parts.netloc, path, parts.query, ""))
 
 
+def _letterbox(frame: np.ndarray, width: int, height: int) -> np.ndarray:
+    """Resize `frame` to exactly (height, width) preserving aspect ratio, padding
+    the remainder with black bars.
+
+    Uses a single uniform scale for both axes, so pose geometry is preserved —
+    `head_lateral_tilt_2d` and the other atan2/ratio measurements are unchanged
+    (a direct, non-uniform resize would distort the angles). Returns the input
+    untouched when it is already the target size.
+    """
+    h, w = frame.shape[:2]
+    if (w, h) == (width, height):
+        return frame
+    scale = min(width / w, height / h)
+    new_w, new_h = max(1, round(w * scale)), max(1, round(h * scale))
+    resized = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_AREA)
+    canvas = np.zeros((height, width, 3), dtype=frame.dtype)
+    x0, y0 = (width - new_w) // 2, (height - new_h) // 2
+    canvas[y0 : y0 + new_h, x0 : x0 + new_w] = resized
+    return canvas
+
+
 class IPWebcamCapture:
     """Background thread that streams an MJPEG feed from an IP Webcam app and
     keeps the latest decoded frame available.
 
     Drop-in for `capture.WebcamCapture`: same start()/read_latest()/
-    read_latest_with_ts()/stop() semantics. Takes a URL instead of a device int
-    (resolution is configured in the phone app, so there is no width/height).
+    read_latest_with_ts()/stop() semantics. Takes a URL instead of a device int.
+    The phone app controls the *captured* resolution, but `width`/`height` (when
+    given) conform each delivered frame to that size via `_letterbox` (uniform
+    scale + black bars), so this is a true drop-in for consumers that assume a
+    fixed frame size. Leave them None to pass frames through at native size.
     """
 
     def __init__(
         self,
         url: str,
         *,
+        width: Optional[int] = None,
+        height: Optional[int] = None,
         connect_timeout: float = 5.0,
         read_timeout: float = 5.0,
         chunk_size: int = 4096,
         reconnect_backoff_s: float = 0.5,
     ):
         self._url = _normalize_url(url)
+        self._width = width
+        self._height = height
         self._connect_timeout = connect_timeout
         self._read_timeout = read_timeout
         self._chunk_size = chunk_size
@@ -131,6 +159,8 @@ class IPWebcamCapture:
                             np.frombuffer(frames[-1], np.uint8), cv2.IMREAD_COLOR
                         )
                         if img is not None:
+                            if self._width and self._height:
+                                img = _letterbox(img, self._width, self._height)
                             with self._lock:
                                 self._latest = img
                                 self._latest_ts = time.monotonic()

@@ -7,7 +7,12 @@ import requests
 
 from camera import build_capture
 from camera.__main__ import _parse_args
-from camera.ip_webcam import IPWebcamCapture, _normalize_url, iter_jpeg_frames
+from camera.ip_webcam import (
+    IPWebcamCapture,
+    _letterbox,
+    _normalize_url,
+    iter_jpeg_frames,
+)
 from capture import WebcamCapture
 
 
@@ -171,6 +176,36 @@ def test_read_latest_returns_none_before_any_frame(monkeypatch):
     cap.start()
     try:
         assert cap.read_latest(timeout=0.2) is None
+    finally:
+        cap.stop()
+
+
+def test_letterbox_conforms_size_and_preserves_aspect():
+    # 16:9 source into a 4:3 target -> uniform scale to 640x360, black bars
+    # top/bottom (geometry preserved, so pose angles are unaffected).
+    src = np.full((1080, 1920, 3), 200, dtype=np.uint8)
+    out = _letterbox(src, 640, 480)
+    assert out.shape == (480, 640, 3)
+    assert out[0, 320].tolist() == [0, 0, 0]  # top bar is black
+    assert out[240, 320].tolist() == [200, 200, 200]  # centre is content
+    assert out[479, 320].tolist() == [0, 0, 0]  # bottom bar is black
+
+
+def test_letterbox_noop_when_size_matches():
+    src = np.full((480, 640, 3), 100, dtype=np.uint8)
+    out = _letterbox(src, 640, 480)
+    assert out is src  # already the target size -> returned unchanged
+
+
+def test_ipwebcam_conforms_frame_to_requested_size(monkeypatch):
+    a = _jpeg(77)  # native 8x8 JPEG
+    _patch_get(monkeypatch, lambda: _FakeResp([a] + [b""] * 200, pause_s=0.005))
+    cap = IPWebcamCapture("192.168.1.42:8080", width=320, height=240)
+    cap.start()
+    try:
+        frame = cap.read_latest(timeout=1.0)
+        assert frame is not None
+        assert frame.shape == (240, 320, 3)
     finally:
         cap.stop()
 
