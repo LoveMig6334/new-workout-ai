@@ -15,6 +15,7 @@
 ## Conventions used throughout this plan
 
 - Always run Python via `uv run`.
+- **Core / runner isolation (load-bearing).** All logic lives in importable `research/compression/*.py` modules with plain-kwargs functions (no argparse `Namespace` in the core) and unit tests — the executing agent builds and tests these. **Model-running** (teacher export, training, eval, quantization, plots) is driven from **Jupyter notebooks** under `notebooks/compression_pipeline/` (Phase 12) that import `compression.*` and call the core functions. **The user runs the notebooks; the agent never executes the heavy notebooks or full training/export.** The `__main__`/CLI blocks are thin wrappers around the same core functions (handy for the agent's tiny smoke checks), not where logic lives.
 - New package lives under `research/compression/` (importable as `compression.*` once `research/` is on the pytest path — Task 0).
 - Tests live under `tests/compression/` and import as `from compression.<module> import ...`.
 - Keypoints are COCO-17. Index constants are imported from `analysis.angles` (`NOSE`, `L_SHOULDER`, …) wherever the upper-body subset is needed.
@@ -758,22 +759,19 @@ from .teacher import Teacher
 from .softlabel_store import SoftLabelWriter
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--split", choices=["train", "val"], default="train")
-    ap.add_argument("--limit", type=int, default=0)
-    args = ap.parse_args()
-
-    img_dir = config.COCO_ROOT / f"{args.split}2017"
-    ann = config.COCO_ROOT / "annotations" / f"person_keypoints_{args.split}2017.json"
+def export_softlabels(split: str = "train", limit: int = 0) -> str:
+    """Core (notebook-callable): cache teacher soft labels for a COCO split.
+    Returns the output prefix path."""
+    img_dir = config.COCO_ROOT / f"{split}2017"
+    ann = config.COCO_ROOT / "annotations" / f"person_keypoints_{split}2017.json"
     ds = CocoTopDown(str(img_dir), str(ann))
     teacher = Teacher()
 
-    n = len(ds) if args.limit == 0 else min(args.limit, len(ds))
-    out_prefix = config.SOFTLABEL_DIR / f"{args.split}"
+    n = len(ds) if limit == 0 else min(limit, len(ds))
+    out_prefix = config.SOFTLABEL_DIR / f"{split}"
     writer = SoftLabelWriter(str(out_prefix), config.SIMCC_X_BINS,
                              config.SIMCC_Y_BINS, config.NUM_KEYPOINTS)
-    for i in tqdm(range(n), desc=f"teacher {args.split}"):
+    for i in tqdm(range(n), desc=f"teacher {split}"):
         s = ds[i]
         sx, sy = teacher.infer_simcc(s["input"])
         if i == 0:
@@ -784,6 +782,15 @@ def main():
         writer.add(ann_id=s["meta"]["ann_id"], sx=sx, sy=sy)
     writer.close()
     print(f"wrote {n} soft labels to {out_prefix}.npy")
+    return str(out_prefix)
+
+
+def main():  # thin CLI wrapper around export_softlabels()
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--split", choices=["train", "val"], default="train")
+    ap.add_argument("--limit", type=int, default=0)
+    args = ap.parse_args()
+    export_softlabels(split=args.split, limit=args.limit)
 
 
 if __name__ == "__main__":
@@ -1176,24 +1183,26 @@ class TrainSet(Dataset):
         }
 
 
-def train(args):
+def train(split="train", limit=0, epochs=20, batch=32, lr=1e-3, workers=4,
+          w_gt=1.0, w_kd=1.0, width=config.STUDENT_WIDTH, depth=config.STUDENT_DEPTH,
+          input_scale=1.0, tag=""):
+    """Core (notebook-callable) distillation loop. Returns the final ckpt path."""
     dev = _device()
     print(f"device={dev}")
-    img_dir = config.COCO_ROOT / f"{args.split}2017"
-    ann = config.COCO_ROOT / "annotations" / f"person_keypoints_{args.split}2017.json"
+    img_dir = config.COCO_ROOT / f"{split}2017"
+    ann = config.COCO_ROOT / "annotations" / f"person_keypoints_{split}2017.json"
     ds = CocoTopDown(str(img_dir), str(ann))
-    reader = SoftLabelReader(str(config.SOFTLABEL_DIR / args.split))
-    train_set = TrainSet(ds, reader, limit=args.limit)
-    loader = DataLoader(train_set, batch_size=args.batch, shuffle=True,
-                        num_workers=args.workers, drop_last=True)
+    reader = SoftLabelReader(str(config.SOFTLABEL_DIR / split))
+    train_set = TrainSet(ds, reader, limit=limit)
+    loader = DataLoader(train_set, batch_size=batch, shuffle=True,
+                        num_workers=workers, drop_last=True)
 
-    model = StudentPose(width=args.width, depth=args.depth,
-                        input_scale=args.input_scale).to(dev)
-    opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
-    sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=args.epochs)
+    model = StudentPose(width=width, depth=depth, input_scale=input_scale).to(dev)
+    opt = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
+    sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=epochs)
 
     config.CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
-    for ep in range(args.epochs):
+    for ep in range(epochs):
         model.train()
         running = 0.0
         for b in tqdm(loader, desc=f"epoch {ep}"):
@@ -1204,18 +1213,20 @@ def train(args):
                    kl_discret_loss(sy, b["gy"].to(dev), vis)
             l_kd = kd_simcc_loss(sx, b["tx"].to(dev)) + \
                    kd_simcc_loss(sy, b["ty"].to(dev))
-            loss = args.w_gt * l_gt + args.w_kd * l_kd
+            loss = w_gt * l_gt + w_kd * l_kd
             opt.zero_grad()
             loss.backward()
             opt.step()
             running += loss.item()
         sched.step()
         print(f"epoch {ep}: mean loss {running / max(1, len(loader)):.4f}")
-        save_student(model, config.CHECKPOINT_DIR / f"student{args.tag}_ep{ep}.pt")
-    save_student(model, config.CHECKPOINT_DIR / f"student{args.tag}_final.pt")
+        save_student(model, config.CHECKPOINT_DIR / f"student{tag}_ep{ep}.pt")
+    final = config.CHECKPOINT_DIR / f"student{tag}_final.pt"
+    save_student(model, final)
+    return str(final)
 
 
-def main():
+def main():  # thin CLI wrapper around train()
     ap = argparse.ArgumentParser()
     ap.add_argument("--split", default="train")
     ap.add_argument("--limit", type=int, default=0)
@@ -1229,7 +1240,10 @@ def main():
     ap.add_argument("--depth", type=float, default=config.STUDENT_DEPTH)
     ap.add_argument("--input_scale", type=float, default=1.0)
     ap.add_argument("--tag", default="")  # checkpoint suffix per ablation variant
-    train(ap.parse_args())
+    a = ap.parse_args()
+    train(split=a.split, limit=a.limit, epochs=a.epochs, batch=a.batch, lr=a.lr,
+          workers=a.workers, w_gt=a.w_gt, w_kd=a.w_kd, width=a.width, depth=a.depth,
+          input_scale=a.input_scale, tag=a.tag)
 
 
 if __name__ == "__main__":
@@ -1251,24 +1265,27 @@ git add research/compression/train.py
 git commit -m "feat(compression): MPS distillation training loop"
 ```
 
-- [ ] **Step 4: (Verification, no commit) Full training run**
+- [ ] **Step 4: (USER-run, not the agent) Full training run**
 
-Once the smoke run looks right, train for real (start with a subset, then scale):
-```bash
-uv run python -m compression.export_softlabels --split train --limit 20000
-uv run python -m compression.train --split train --limit 20000 --epochs 30 --batch 32
-```
-Record final loss + wall-clock in `research/compression/README.md` under a new "## Training runs" section. Commit that note.
+Full soft-label export + training is heavy (COCO + long MPS compute) and is the
+**user's** step, done from notebook `02_train_student.ipynb` (Phase 12), which
+calls `export_softlabels(...)` then `train(...)`. The agent must NOT run full
+training. The agent's responsibility ends at the tiny MPS smoke check in Step 2.
+The user records final loss + wall-clock in the notebook and/or
+`research/compression/README.md`.
 
 ### Task 7b: Specialization ablation variants
 
 **Files:**
 - Modify: `research/compression/README.md` (record the variant grid + results)
 
-This realizes the spec's "task specialization" lever. Each variant is just a
-training run with different `--width` / `--depth` / `--input_scale` and a `--tag`;
-because `save_student`/`load_student` carry the arch dict, every eval CLI reloads
-the right shape automatically (pass the variant's `--ckpt`).
+This realizes the spec's "task specialization" lever. **These runs are USER-run**
+(notebook `02_train_student.ipynb`, which has a variant-grid cell), not the agent —
+they are full trainings. Each variant is just a `train(...)` call with different
+`width` / `depth` / `input_scale` and a `tag`; because `save_student`/`load_student`
+carry the arch dict, every eval reloads the right shape automatically (pass the
+variant's ckpt path). The agent's only job here is to confirm the knobs exist on
+`train()` and `StudentPose`; the steps below are the user's runbook.
 
 - [ ] **Step 1: Train the variant grid**
 
@@ -1914,9 +1931,59 @@ git commit -m "feat(compression): StudentPose2D sibling source for the live app"
 
 ---
 
+## Phase 12 — Runner notebooks (the user runs these)
+
+The model-running layer. These notebooks live under
+`notebooks/compression_pipeline/` (committed; `notebooks/data/` is gitignored per
+repo convention) and are **thin**: a setup cell adds `src` + `research` to
+`sys.path`, then each cell imports `compression.*` and calls a core function. They
+hold **no logic** — all logic stays in the tested `.py` modules. **The user runs
+these notebooks; the agent scaffolds/maintains them but never executes them.**
+
+The notebooks are scaffolded as part of this work (already present on the branch).
+Each becomes runnable once its upstream `.py` tasks are green:
+
+| Notebook | Calls | Needs |
+| --- | --- | --- |
+| `01_teacher_softlabels.ipynb` | `export_softlabels(split, limit)` | COCO + RTMPose weights (Tasks 3b, 4) |
+| `02_train_student.ipynb` | `train(...)` + the ablation variant grid | soft-label cache (Task 7, 7b) |
+| `03_eval_student.ipynb` | `coco_ap.run_val_ap`, `task_eval.*`, `benchmark.benchmark` | trained ckpt (Tasks 8–10) |
+| `04_quantize_coreml.ipynb` | `ptq_coreml.export`, `ptq_coreml.benchmark_coreml` | trained ckpt (Task 11) |
+| `05_frontier.ipynb` | `frontier.plot_frontier` | all results (Task 12) |
+
+### Task 14: Verify the notebooks import cleanly (no execution of heavy cells)
+
+**Files:**
+- (notebooks already created under `notebooks/compression_pipeline/`)
+
+- [ ] **Step 1: Confirm the notebooks parse and their setup cell imports work**
+
+The agent may run ONLY the lightweight import/setup check — never the
+export/train/eval cells. Run:
+```bash
+uv run python - <<'PY'
+import nbformat, glob
+for nb in sorted(glob.glob("notebooks/compression_pipeline/*.ipynb")):
+    n = nbformat.read(nb, as_version=4)
+    assert n.cells and n.cells[0].cell_type in ("markdown", "code"), nb
+    print("ok:", nb)
+PY
+```
+Expected: one `ok:` line per notebook, no error.
+
+- [ ] **Step 2: Commit (if the scaffolds changed)**
+
+```bash
+git add notebooks/compression_pipeline/
+git commit -m "docs(compression): runner notebooks (user-run pipeline)"
+```
+
+---
+
 ## Done criteria
 
 - `uv run pytest tests/compression` is green (all pure-logic tasks).
+- The runner notebooks under `notebooks/compression_pipeline/` exist; the user runs them to produce soft labels, the trained student, eval numbers, the quantized model, and the frontier plot. The agent never executed the heavy notebook cells.
 - A trained `student_final.pt` exists and `eval/coco_ap.py` prints a COCO AP; `eval/task_eval.py` reports angle agreement vs the teacher; `eval/benchmark.py` reports params/latency.
 - `quantize/ptq_coreml.py` produces an int8 `.mlpackage` smaller than fp16, with a documented AP delta.
 - `compare/frontier.py` plots the student against RTMPose tiers / MoveNet / MediaPipe.
