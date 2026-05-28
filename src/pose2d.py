@@ -228,9 +228,33 @@ class StudentPose2D:
         center, scale = self._bbox_to_center_scale(bbox)
         inp = self._warp_image(image_bgr, center, scale)[None]  # (1,3,H,W)
         out = self._ct_model.predict({"input": inp})
-        keys = list(out.keys())
-        sx, sy = out[keys[0]], out[keys[1]]
-        kps_in, scores = self._decode_simcc(np.asarray(sx), np.asarray(sy))
+
+        # CoreML mlprogram output names are auto-assigned and dict ordering is
+        # not guaranteed to match the trace tuple — pick sx/sy by their final
+        # axis size (384 vs 512) to be ordering-safe.
+        sx = sy = None
+        for v in out.values():
+            arr = np.asarray(v)
+            if arr.shape[-1] == ccfg.SIMCC_X_BINS:
+                sx = arr
+            elif arr.shape[-1] == ccfg.SIMCC_Y_BINS:
+                sy = arr
+        assert sx is not None and sy is not None, \
+            f"CoreML output shapes do not match SIMCC bins {ccfg.SIMCC_X_BINS}/{ccfg.SIMCC_Y_BINS}: " \
+            f"{[np.asarray(v).shape for v in out.values()]}"
+
+        # Softmax along the bin axis so decode_simcc's peak-value confidence is
+        # a probability in [0,1] — matches eval/coco_ap.run_val_ap, so the
+        # 0.3 score gate in analysis/angles.py behaves the same in both paths.
+        def _softmax_lastdim(a):
+            m = a.max(axis=-1, keepdims=True)
+            e = np.exp(a - m)
+            return e / e.sum(axis=-1, keepdims=True)
+
+        sx = _softmax_lastdim(sx)
+        sy = _softmax_lastdim(sy)
+
+        kps_in, scores = self._decode_simcc(sx, sy)
         Minv = self._get_warp_matrix(center, scale, (ccfg.INPUT_W, ccfg.INPUT_H), inverse=True)
         kps_img = self._warp_keypoints(kps_in[0], Minv)
         return kps_img.astype(np.float32), scores[0].astype(np.float32)
