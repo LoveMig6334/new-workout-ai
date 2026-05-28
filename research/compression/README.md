@@ -38,3 +38,11 @@ After PTQ, re-run COCO val AP through the CoreML int8 model (load via
 `coremltools` and feed the same warped crops as `eval/coco_ap.run_val_ap`,
 swapping the torch forward for `mlmodel.predict`). Report AP_int8 vs AP_fp.
 A small drop (≤ ~1–2 AP) is the success criterion; if larger, fall back to QAT.
+
+## Baselines for the frontier
+
+- RTMPose-t/s/m: run `eval/coco_ap.run_val_ap`-style eval with each rtmlib tier
+  as the model; latency from `eval/benchmark` equivalents.
+- MoveNet (Lightning/Thunder): TF-Hub / TFLite; map its COCO-17 output directly.
+- MediaPipe BlazePose: `mediapipe` package; compare only overlapping joints.
+Assemble all rows into a results JSON and run `compare/frontier.py`.
