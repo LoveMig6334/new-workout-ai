@@ -10,7 +10,7 @@ wheels/
 .venv
 
 # Project-specific
-models/
+/models/
 vendor/
 *.mp4
 *.mov
