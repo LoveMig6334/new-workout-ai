@@ -19,8 +19,18 @@ class StudentPose(nn.Module):
         self.input_scale = input_scale
         self.arch = {"width": width, "depth": depth, "input_scale": input_scale}
         self.backbone = CSPNeXtLite(width=width, depth=depth)
-        feat_h = int(config.INPUT_H * input_scale) // 32
-        feat_w = int(config.INPUT_W * input_scale) // 32
+
+        # Derive (feat_h, feat_w) from a real forward pass — stride-2 convs use
+        # ceil-style arithmetic that pure formula math gets wrong for inputs not
+        # divisible by 32 (e.g. input_scale=0.75 -> input 192x144 -> feat 6x5,
+        # not the formula's 6x4).
+        import torch
+        in_h = int(config.INPUT_H * input_scale)
+        in_w = int(config.INPUT_W * input_scale)
+        with torch.no_grad():
+            feat = self.backbone(torch.zeros(1, 3, in_h, in_w))
+        feat_h, feat_w = feat.shape[2], feat.shape[3]
+
         self.head = SimCCHead(
             in_channels=self.backbone.out_channels,
             num_kpts=config.NUM_KEYPOINTS,
