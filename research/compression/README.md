@@ -31,3 +31,10 @@ person instances first to validate the loop, then scale to full train2017.
 4. Compare student vs teacher (and vs your labels) via
    `eval/task_eval.py`: report `upper_body_pck` and `angle_agreement`
    (the head-lateral-tilt / CVA differences the scoring actually consumes).
+
+## Quantization accuracy check
+
+After PTQ, re-run COCO val AP through the CoreML int8 model (load via
+`coremltools` and feed the same warped crops as `eval/coco_ap.run_val_ap`,
+swapping the torch forward for `mlmodel.predict`). Report AP_int8 vs AP_fp.
+A small drop (≤ ~1–2 AP) is the success criterion; if larger, fall back to QAT.
