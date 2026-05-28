@@ -29,3 +29,4 @@ notebooks/data/
 
 # Harness scratch (subagent worktrees, etc.)
 .claude/
+data/
