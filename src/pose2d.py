@@ -189,3 +189,48 @@ class Pose2D:
             except Exception:
                 heatmaps = None
         return kps, scores, heatmaps
+
+
+class StudentPose2D:
+    """Drop-in pose source backed by the compressed CoreML student.
+
+    Same (keypoints, scores) contract as Pose2D.infer. Uses Pose2D's detector
+    for the person bbox, then the int8 student for keypoints. Requires
+    coremltools + a top-down crop matching the training transform.
+    """
+
+    def __init__(self, mlpackage_path: str):
+        import coremltools as ct
+        import sys
+
+        sys.path.insert(0, str(PROJECT_ROOT / "research"))
+        from compression.transforms import (
+            bbox_to_center_scale, get_warp_matrix, warp_keypoints, warp_image,
+        )
+        from compression.simcc import decode_simcc
+
+        self._ct_model = ct.models.MLModel(mlpackage_path)
+        self._det = Pose2D(mode="balanced", accelerator="coreml")._body.det_model
+        self._bbox_to_center_scale = bbox_to_center_scale
+        self._get_warp_matrix = get_warp_matrix
+        self._warp_keypoints = warp_keypoints
+        self._warp_image = warp_image
+        self._decode_simcc = decode_simcc
+
+    def infer(self, image_bgr: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        from compression import config as ccfg
+
+        bboxes = self._det(image_bgr)
+        if len(bboxes) == 0:
+            return np.zeros((17, 2), np.float32), np.zeros((17,), np.float32)
+        x1, y1, x2, y2 = bboxes[0][:4]
+        bbox = np.array([x1, y1, x2 - x1, y2 - y1], dtype=np.float32)
+        center, scale = self._bbox_to_center_scale(bbox)
+        inp = self._warp_image(image_bgr, center, scale)[None]  # (1,3,H,W)
+        out = self._ct_model.predict({"input": inp})
+        keys = list(out.keys())
+        sx, sy = out[keys[0]], out[keys[1]]
+        kps_in, scores = self._decode_simcc(np.asarray(sx), np.asarray(sy))
+        Minv = self._get_warp_matrix(center, scale, (ccfg.INPUT_W, ccfg.INPUT_H), inverse=True)
+        kps_img = self._warp_keypoints(kps_in[0], Minv)
+        return kps_img.astype(np.float32), scores[0].astype(np.float32)
